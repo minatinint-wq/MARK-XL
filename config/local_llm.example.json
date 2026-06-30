@@ -1,0 +1,18 @@
+{
+  "provider": "ollama",
+  "base_url": "http://127.0.0.1:11434",
+  "mode": "fast",
+  "model": "llama3.2:1b",
+  "parameters_b": 1,
+  "fast_model": "llama3.2:1b",
+  "fast_parameters_b": 1,
+  "deep_model": "llama3.1:8b",
+  "deep_parameters_b": 8,
+  "enabled": true,
+  "fallback": "gemini",
+  "timeout_seconds": 45,
+  "temperature": 0.35,
+  "num_ctx": 1024,
+  "num_predict": 48,
+  "keep_alive": "30m"
+}

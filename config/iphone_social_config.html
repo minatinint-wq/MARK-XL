@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS Config - iPhone e Social</title>
+  <style>
+    :root {
+      --bg: #05090d;
+      --panel: #09131b;
+      --panel-2: #0c1822;
+      --line: #15384a;
+      --line-2: #236b89;
+      --text: #d9f8ff;
+      --muted: #78a9b8;
+      --cyan: #00d4ff;
+      --green: #00ff88;
+      --amber: #ffcc00;
+      --pink: #ff6699;
+      --red: #ff3355;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(0, 212, 255, 0.08), transparent 220px),
+        var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    .shell {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 22px 0 28px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 74px;
+      border: 1px solid var(--line);
+      background: rgba(9, 19, 27, 0.92);
+      padding: 14px 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0;
+      font-weight: 800;
+    }
+
+    .subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font: 12px "Consolas", monospace;
+    }
+
+    .status {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(96px, 1fr));
+      gap: 8px;
+      min-width: 330px;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: #061018;
+      padding: 8px;
+      font: 12px "Consolas", monospace;
+    }
+
+    .pill strong {
+      display: block;
+      color: var(--cyan);
+      font-size: 14px;
+      margin-bottom: 2px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    section {
+      border: 1px solid var(--line);
+      background: rgba(9, 19, 27, 0.94);
+      padding: 14px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 8px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 14px;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .tag {
+      font: 11px "Consolas", monospace;
+      color: var(--green);
+      border: 1px solid rgba(0, 255, 136, 0.45);
+      padding: 4px 7px;
+      background: rgba(0, 255, 136, 0.07);
+    }
+
+    label {
+      display: block;
+      color: var(--muted);
+      font: 12px "Consolas", monospace;
+      margin: 10px 0 5px;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      background: #040b11;
+      color: var(--text);
+      padding: 8px 10px;
+      outline: none;
+      font: 14px "Segoe UI", Arial, sans-serif;
+    }
+
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--cyan);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    button, a.button {
+      min-height: 34px;
+      border: 1px solid var(--line-2);
+      background: #061018;
+      color: var(--text);
+      padding: 8px 11px;
+      text-decoration: none;
+      cursor: pointer;
+      font: 12px "Consolas", monospace;
+    }
+
+    button:hover, a.button:hover {
+      color: var(--cyan);
+      border-color: var(--cyan);
+    }
+
+    .primary {
+      color: #001018;
+      background: var(--cyan);
+      border-color: var(--cyan);
+      font-weight: 700;
+    }
+
+    .primary:hover {
+      color: #001018;
+      filter: brightness(1.08);
+    }
+
+    .danger {
+      border-color: rgba(255, 51, 85, 0.65);
+      color: var(--red);
+    }
+
+    .console {
+      min-height: 148px;
+      max-height: 260px;
+      overflow: auto;
+      white-space: pre-wrap;
+      background: #02080c;
+      border: 1px solid var(--line);
+      padding: 10px;
+      color: var(--green);
+      font: 12px "Consolas", monospace;
+    }
+
+    .commands {
+      display: grid;
+      gap: 7px;
+    }
+
+    .cmd {
+      border: 1px solid var(--line);
+      background: #040b11;
+      padding: 8px;
+      color: var(--muted);
+      font: 12px "Consolas", monospace;
+      cursor: pointer;
+    }
+
+    .cmd:hover {
+      color: var(--text);
+      border-color: var(--cyan);
+    }
+
+    .full { grid-column: 1 / -1; }
+
+    @media (max-width: 900px) {
+      header, .grid, .row {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+
+      .status {
+        min-width: 0;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <h1>JARVIS Config - iPhone e Social</h1>
+        <div class="subtitle">Local profile for Bluetooth, Phone Link, WhatsApp and Instagram routines</div>
+      </div>
+      <div class="status">
+        <div class="pill"><strong id="iphoneState">READY</strong>IPHONE</div>
+        <div class="pill"><strong id="socialState">READY</strong>SOCIAL</div>
+        <div class="pill"><strong id="saveState">LOCAL</strong>STORAGE</div>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section>
+        <div class="section-title">
+          <h2>iPhone Bridge</h2>
+          <span class="tag">Bluetooth + Phone Link</span>
+        </div>
+        <div class="row">
+          <div>
+            <label for="iphoneName">Nome preferido do iPhone</label>
+            <input id="iphoneName" placeholder="Ex: iPhone do Lucas">
+          </div>
+          <div>
+            <label for="countryCode">Codigo do pais</label>
+            <input id="countryCode" placeholder="55" inputmode="numeric">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="defaultPhone">Telefone padrao</label>
+            <input id="defaultPhone" placeholder="5511999999999" inputmode="tel">
+          </div>
+          <div>
+            <label for="phoneMode">Modo padrao</label>
+            <select id="phoneMode">
+              <option value="phone_link">Phone Link</option>
+              <option value="bluetooth_media">Bluetooth media</option>
+              <option value="manual_confirm">Confirmacao manual</option>
+            </select>
+          </div>
+        </div>
+        <div class="actions">
+          <a class="button primary" href="ms-phone:">Abrir Phone Link</a>
+          <a class="button" href="ms-settings:bluetooth">Bluetooth</a>
+          <button data-copy="JARVIS, conecta meu iPhone">Copiar comando conectar</button>
+          <button data-copy="JARVIS, status do iPhone">Copiar comando status</button>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">
+          <h2>Atalhos do iPhone</h2>
+          <span class="tag">Silent learning</span>
+        </div>
+        <label for="shortcutUrl">URL da ponte local</label>
+        <input id="shortcutUrl" placeholder="http://IP_DO_PC:8765/event?token=TOKEN">
+        <div class="row">
+          <div>
+            <label for="shortcutMode">Evento padrao</label>
+            <select id="shortcutMode">
+              <option value="battery">Bateria</option>
+              <option value="location">Localizacao</option>
+              <option value="clipboard">Clipboard</option>
+              <option value="photo">Foto/print</option>
+              <option value="audio">Audio</option>
+              <option value="focus">Foco</option>
+              <option value="emergency">Emergencia</option>
+            </select>
+          </div>
+          <div>
+            <label for="shortcutToken">Token</label>
+            <input id="shortcutToken" placeholder="Gerado pelo JARVIS">
+          </div>
+        </div>
+        <div class="actions">
+          <button data-copy="JARVIS, iniciar atalhos iPhone">Iniciar ponte</button>
+          <button data-copy="JARVIS, URL dos atalhos do iPhone">Copiar pedido de URL</button>
+          <button data-copy="JARVIS, modelos de atalhos do iPhone">Modelos</button>
+          <button data-copy="JARVIS, eventos do iPhone">Eventos</button>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">
+          <h2>Mensagens</h2>
+          <span class="tag">WhatsApp + Instagram</span>
+        </div>
+        <div class="row">
+          <div>
+            <label for="whatsappDefault">WhatsApp padrao</label>
+            <input id="whatsappDefault" placeholder="Contato ou telefone">
+          </div>
+          <div>
+            <label for="instagramDefault">Instagram padrao</label>
+            <input id="instagramDefault" placeholder="@usuario">
+          </div>
+        </div>
+        <label for="messageDraft">Mensagem modelo</label>
+        <textarea id="messageDraft" placeholder="Texto que o JARVIS pode copiar/preparar"></textarea>
+        <div class="actions">
+          <a class="button primary" href="https://web.whatsapp.com/">WhatsApp Web</a>
+          <a class="button" href="https://www.instagram.com/direct/inbox/">Instagram Direct</a>
+          <button id="openWa">Abrir WhatsApp com texto</button>
+          <button id="copyDraft">Copiar mensagem</button>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">
+          <h2>Comandos rapidos</h2>
+          <span class="tag">Clique para copiar</span>
+        </div>
+        <div class="commands">
+          <div class="cmd" data-copy="JARVIS, abre Phone Link">JARVIS, abre Phone Link</div>
+          <div class="cmd" data-copy="JARVIS, abre o Bluetooth do iPhone">JARVIS, abre o Bluetooth do iPhone</div>
+          <div class="cmd" data-copy="JARVIS, manda WhatsApp para CONTATO dizendo MENSAGEM">JARVIS, manda WhatsApp para CONTATO dizendo MENSAGEM</div>
+          <div class="cmd" data-copy="JARVIS, abre Instagram Direct">JARVIS, abre Instagram Direct</div>
+          <div class="cmd" data-copy="JARVIS, abre perfil do Instagram USUARIO">JARVIS, abre perfil do Instagram USUARIO</div>
+          <div class="cmd" data-copy="JARVIS, identifica notificacoes do iPhone">JARVIS, identifica notificacoes do iPhone</div>
+          <div class="cmd" data-copy="JARVIS, iniciar atalhos iPhone">JARVIS, iniciar atalhos iPhone</div>
+          <div class="cmd" data-copy="JARVIS, modelos de atalhos do iPhone">JARVIS, modelos de atalhos do iPhone</div>
+          <div class="cmd" data-copy="JARVIS, aprendizado operacional">JARVIS, aprendizado operacional</div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-title">
+          <h2>Perfil local</h2>
+          <span class="tag">Exportavel</span>
+        </div>
+        <div class="actions">
+          <button class="primary" id="saveConfig">Salvar local</button>
+          <button id="exportConfig">Exportar JSON</button>
+          <button id="importConfig">Importar JSON</button>
+          <button class="danger" id="resetConfig">Limpar</button>
+          <input id="importFile" type="file" accept="application/json" hidden>
+        </div>
+        <label for="configJson">JSON atual</label>
+        <textarea id="configJson" spellcheck="false"></textarea>
+      </section>
+
+      <section class="full">
+        <div class="section-title">
+          <h2>Log local</h2>
+          <span class="tag">Browser only</span>
+        </div>
+        <div class="console" id="log"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const KEY = "jarvis_iphone_social_config_v1";
+    const $ = (id) => document.getElementById(id);
+    const fields = ["iphoneName", "countryCode", "defaultPhone", "phoneMode", "shortcutUrl", "shortcutMode", "shortcutToken", "whatsappDefault", "instagramDefault", "messageDraft"];
+
+    function log(line) {
+      const box = $("log");
+      const stamp = new Date().toLocaleTimeString();
+      box.textContent = `[${stamp}] ${line}\n` + box.textContent;
+    }
+
+    function readForm() {
+      const data = {};
+      for (const id of fields) data[id] = $(id).value.trim();
+      data.updatedAt = new Date().toISOString();
+      return data;
+    }
+
+    function writeForm(data) {
+      for (const id of fields) $(id).value = data && data[id] ? data[id] : "";
+      $("configJson").value = JSON.stringify(readForm(), null, 2);
+    }
+
+    function save() {
+      const data = readForm();
+      localStorage.setItem(KEY, JSON.stringify(data));
+      $("configJson").value = JSON.stringify(data, null, 2);
+      $("saveState").textContent = "SAVED";
+      log("Configuracao salva no localStorage.");
+    }
+
+    function load() {
+      const raw = localStorage.getItem(KEY);
+      if (!raw) {
+        writeForm({ countryCode: "55", phoneMode: "phone_link" });
+        log("Perfil novo carregado.");
+        return;
+      }
+      try {
+        writeForm(JSON.parse(raw));
+        $("saveState").textContent = "LOADED";
+        log("Configuracao local carregada.");
+      } catch {
+        writeForm({});
+        log("JSON local invalido; perfil limpo.");
+      }
+    }
+
+    function copy(text) {
+      navigator.clipboard.writeText(text).then(
+        () => log(`Copiado: ${text}`),
+        () => log("Nao consegui copiar para o clipboard.")
+      );
+    }
+
+    function exportJson() {
+      const blob = new Blob([JSON.stringify(readForm(), null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "jarvis-iphone-social-config.json";
+      a.click();
+      URL.revokeObjectURL(url);
+      log("JSON exportado.");
+    }
+
+    function openWhatsAppWithText() {
+      const phone = $("whatsappDefault").value.replace(/\D+/g, "");
+      const text = encodeURIComponent($("messageDraft").value.trim());
+      const url = phone ? `https://wa.me/${phone}${text ? `?text=${text}` : ""}` : "https://web.whatsapp.com/";
+      window.open(url, "_blank");
+      log("WhatsApp aberto com configuracao atual.");
+    }
+
+    for (const id of fields) {
+      $(id).addEventListener("input", () => {
+        $("configJson").value = JSON.stringify(readForm(), null, 2);
+        $("saveState").textContent = "EDIT";
+      });
+    }
+
+    document.querySelectorAll("[data-copy]").forEach((el) => {
+      el.addEventListener("click", () => copy(el.getAttribute("data-copy")));
+    });
+
+    $("saveConfig").addEventListener("click", save);
+    $("exportConfig").addEventListener("click", exportJson);
+    $("openWa").addEventListener("click", openWhatsAppWithText);
+    $("copyDraft").addEventListener("click", () => copy($("messageDraft").value));
+    $("resetConfig").addEventListener("click", () => {
+      localStorage.removeItem(KEY);
+      writeForm({ countryCode: "55", phoneMode: "phone_link" });
+      $("saveState").textContent = "LOCAL";
+      log("Configuracao local limpa.");
+    });
+    $("importConfig").addEventListener("click", () => $("importFile").click());
+    $("importFile").addEventListener("change", async (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        writeForm(data);
+        save();
+        log(`Importado: ${file.name}`);
+      } catch {
+        log("Arquivo JSON invalido.");
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>

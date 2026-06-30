@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+Python/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+boot_test*
+
+# Images
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temp / generated files
+memory_map_new.html
+memory_visualizer.py
+config/spotify_credentials.json
+
+# Aider AI tool artifacts
+.aider*
+
+# Local secrets / credentials
+config/api_keys.json
+config/*credentials*.json
+config/*secret*.json
+config/*token*.json
+config/iphone_shortcuts.json
+config/local_llm.json
+
+# Personal/generated memory
+memory/*.json
+memory/long_term.json
+memory/neural_activity.json
+memory/*state.json
+memory/*events.json
+memory/*profiles.json
+memory/*learning.json
+memory/*memory.json
+memory/*plan.json
+memory/*report.json
+memory/*index*.json
+memory/neural_map_data.js
+memory/vault_groups.json
+memory/vault_index.json
+memory/vault_search_index.json
+memory/sound_samples/
+
+# Local screenshots/captures
+runas_progress_screenshot.png
+*_screenshot.png
+*_capture.png
+!config/*.example.json
