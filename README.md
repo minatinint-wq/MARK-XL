@@ -1,5 +1,8 @@
 # MARK-XL
 
+[English](README.md) | [Português (Brasil)](docs/README.pt-BR.md)
+
+
 **Local-first personal AI command system for Windows.**
 
 MARK-XL is a Jarvis-style assistant built around voice, vision, local memory, desktop automation, Obsidian knowledge, media tools, maps, weather, games, and personal workflows. It is designed to run on the user's PC, remember context through a local brain, and execute practical commands instead of only chatting.
