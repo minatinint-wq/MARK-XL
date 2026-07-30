@@ -997,19 +997,16 @@ def open_terminal():
 
 
 def open_neural_map():
-    """Open the neural memory map in browser"""
+    """Synchronize the vault index, then open the complete neural memory map."""
     try:
         import webbrowser
-        base_dir = Path(__file__).resolve().parent.parent
-        html_path = base_dir / "memory_map.html"
-        if html_path.exists():
-            webbrowser.open(f"file:///{html_path.absolute()}")
-            return "Neural Memory Map opened in browser."
-        else:
-            return "Memory map file not found. It will be generated next time JARVIS runs."
+        from memory_visualizer import rebuild_neural_map_html
+
+        html_path = rebuild_neural_map_html()
+        webbrowser.open(html_path.resolve().as_uri())
+        return "Neural Memory Map synchronized and opened in browser."
     except Exception as e:
         return f"Failed to open neural map: {e}"
-
 def open_explorer(path: str = ""):
     """Open File Explorer at path"""
     if _OS == "Windows":

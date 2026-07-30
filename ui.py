@@ -480,7 +480,7 @@ class HudCanvas(QWidget):
             txt, col = f"{sym}  PROCESSING", qcol(C.ACC2)
         elif self.state == "LISTENING":
             sym = "●" if self._blink else "○"
-            txt, col = f"{sym}  LISTENING",  qcol(C.GREEN)
+            txt, col = f"{sym}  ONLINE",     qcol(C.GREEN)
         else:
             sym = "●" if self._blink else "○"
             txt, col = f"{sym}  {self.state}", qcol(C.PRI)
@@ -1701,20 +1701,20 @@ class MainWindow(QMainWindow):
             threading.Thread(target=self.on_text_command, args=(command,), daemon=True).start()
 
     def _open_neural_map(self):
-        """Open the neural memory map in default browser"""
-        try:
-            import webbrowser
-            from pathlib import Path
-            base_dir = Path(__file__).resolve().parent
-            html_path = base_dir / "memory_map.html"
-            if html_path.exists():
-                webbrowser.open(f"file:///{html_path.absolute()}")
-                self._log.append_log("SYS: Neural Memory Map opened.")
-            else:
-                self._log.append_log("SYS: Memory map not found. Run memory_visualizer.py first.")
-        except Exception as e:
-            self._log.append_log(f"SYS: Failed to open neural map: {e}")
+        """Rebuild the vault index off the UI thread, then open the map."""
+        self._log.append_log("SYS: Sincronizando cofre neural antes de abrir o mapa...")
 
+        def sync_and_open():
+            try:
+                import webbrowser
+                from memory_visualizer import rebuild_neural_map_html
+
+                html_path = rebuild_neural_map_html()
+                webbrowser.open(html_path.resolve().as_uri())
+            except Exception as exc:
+                print(f"[JARVIS] Falha ao sincronizar mapa neural: {exc}")
+
+        threading.Thread(target=sync_and_open, daemon=True, name="JarvisNeuralMapSync").start()
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._overlay and self._overlay.isVisible():
@@ -2299,6 +2299,13 @@ class JarvisUI:
         self._win.show()
         self.root = _RootShim(self._app)
 
+    def set_startup_visible(self, visible: bool) -> None:
+        if visible:
+            self._win.show()
+            self._win.raise_()
+            self._win.activateWindow()
+        else:
+            self._win.hide()
     @property
     def muted(self) -> bool:
         return self._win._muted

@@ -1,464 +1,438 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>J.A.R.V.I.S — Mapa Neural</title>
-<style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body {
-  background:#090a0f;
-  min-height:100vh;
-  font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  color:#c8d6e5;
-  overflow-x:hidden;
-}
-.header {
-  text-align:center; padding:28px 20px 16px;
-  border-bottom:1px solid #1e2a3a;
-  position:relative;
-}
-.header h1 {
-  font-size:2em; font-weight:600;
-  background:linear-gradient(135deg,#c8d6e5,#00D4FF);
-  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-  letter-spacing:-0.02em;
-}
-.header .stats { color:#6b7b8d; font-size:0.85em; margin-top:6px; }
-.header .stats strong { color:#8ffcff; }
 
-.top-bar {
-  display:flex; gap:12px; align-items:center; justify-content:center;
-  padding:14px 20px; flex-wrap:wrap;
-}
-.search-wrap { position:relative; flex:1; max-width:380px; }
-.search-wrap input {
-  width:100%; padding:9px 14px; border-radius:10px;
-  background:rgba(30,42,58,0.6); border:1px solid #1e2a3a;
-  color:#c8d6e5; font-size:0.85em; outline:none;
-  transition:border-color .2s;
-}
-.search-wrap input:focus { border-color:#00D4FF; }
-.search-wrap input::placeholder { color:#4a5a6a; }
-
-.filter-group {
-  display:flex; gap:6px; flex-wrap:wrap; justify-content:center;
-}
-.filter-btn {
-  padding:5px 12px; border-radius:20px; font-size:0.72em;
-  background:rgba(30,42,58,0.5); border:1px solid #1e2a3a;
-  color:#6b7b8d; cursor:pointer; transition:all .2s; font-family:inherit;
-}
-.filter-btn:hover { border-color:#3a5a7a; color:#c8d6e5; }
-.filter-btn.active { color:#fff; }
-
-.legend {
-  display:flex; flex-wrap:wrap; gap:6px 14px; justify-content:center;
-  padding:0 20px 10px; font-size:0.72em; color:#6b7b8d;
-}
-.legend .dot { width:10px; height:10px; border-radius:50%; display:inline-block; flex-shrink:0; }
-.legend-item { display:flex; align-items:center; gap:5px; }
-
-.group-section { margin:10px 20px 0; }
-.group-header {
-  display:flex; align-items:center; gap:12px; padding:10px 14px;
-  border-radius:10px; margin-bottom:8px; cursor:pointer;
-  transition:background .2s; user-select:none;
-}
-.group-header:hover { filter:brightness(1.15); }
-.group-header h2 { font-size:0.9em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
-.group-header .g-count { font-size:0.72em; opacity:.7; margin-left:auto; }
-.group-header .g-arrow { transition:transform .2s; font-size:0.7em; opacity:.5; }
-.group-header.collapsed .g-arrow { transform:rotate(-90deg); }
-
-.group-categories { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
-
-.category-card {
-  background:rgba(16,22,34,0.85);
-  border:1px solid #1e2a3a;
-  border-radius:8px; padding:10px 12px;
-  min-width:180px; max-width:240px; flex:1 1 180px;
-  transition:all .2s; position:relative;
-}
-.category-card:hover {
-  transform:translateY(-2px);
-  box-shadow:0 6px 20px rgba(0,0,0,.3);
-}
-.category-card .top-row {
-  display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;
-}
-.category-card .cat-name {
-  font-size:0.78em; font-weight:600; text-transform:uppercase;
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;
-}
-.category-card .cat-count {
-  font-size:0.65em; opacity:.6; background:rgba(30,42,58,0.5);
-  padding:1px 8px; border-radius:8px; white-space:nowrap; margin-left:6px;
-}
-.category-card .accent-bar {
-  height:3px; border-radius:2px; margin-bottom:6px;
-}
-.category-card .file-row {
-  font-size:0.68em; color:#4a5a6a; line-height:1.6;
-  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
-}
-.category-card .file-row .file-tag {
-  display:inline; color:#6b7b8d;
-}
-.category-card .cat-more {
-  font-size:0.62em; color:#3a5a7a; margin-top:3px;
-}
-.category-card .source-line {
-  font-size:0.62em; color:#3a5a7a; margin:2px 0 6px;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-}
-.category-card .file-link {
-  color:#8aa4bd; text-decoration:none;
-}
-.category-card .file-link:hover {
-  color:#8ffcff; text-decoration:underline;
-}
-.source-pill {
-  display:inline-block; padding:1px 6px; border-radius:8px;
-  background:rgba(30,42,58,.65); color:#6b7b8d; margin-right:4px;
-}
-
-/* local memory tab */
-#tab-local .category-card { min-width:200px; max-width:280px; }
-#tab-local .file-row .key { color:#8ffcff; }
-#tab-local .file-row .val { color:#4a5a6a; }
-
-.tab-nav {
-  display:flex; justify-content:center; gap:2px; padding:14px 20px 0;
-}
-.tab-nav button {
-  padding:7px 22px; border-radius:8px 8px 0 0;
-  background:transparent; border:1px solid transparent; border-bottom-color:#1e2a3a;
-  color:#4a5a6a; cursor:pointer; font-size:0.82em; font-family:inherit;
-  transition:all .2s;
-}
-.tab-nav button:hover { color:#c8d6e5; background:rgba(30,42,58,.3); }
-.tab-nav button.active { color:#00D4FF; border-color:#1e2a3a; background:rgba(16,22,34,.9); border-bottom-color:transparent; }
-.tab-content { display:none; }
-.tab-content.active { display:block; }
-
-.footer {
-  text-align:center; padding:20px; color:#3a4a5a; font-size:0.72em;
-  border-top:1px solid #1e2a3a; margin-top:20px;
-}
-
-@keyframes fadeSlide {
-  from { opacity:0; transform:translateY(12px); }
-  to { opacity:1; transform:translateY(0); }
-}
-.category-card { animation:fadeSlide .35s ease-out both; }
-</style>
-</head>
-<body>
-
-<div class="header">
-  <h1>J.A.R.V.I.S · Mapa Neural</h1>
-  <div class="stats" id="stats-line">Carregando...</div>
-</div>
-
-<div class="tab-nav">
-  <button class="active" data-tab="vault">📚 Vault</button>
-  <button data-tab="local">🧠 Memória Local</button>
-  <button data-tab="groups">🎨 Grupos</button>
-</div>
-
-<div id="tab-vault" class="tab-content active">
-  <div class="top-bar">
-    <div class="search-wrap">
-      <input id="search" placeholder="Filtrar categorias..." oninput="filterAll(this.value)">
-    </div>
-  </div>
-  <div class="legend" id="legend"></div>
-  <div id="vault-container"></div>
-</div>
-
-<div id="tab-local" class="tab-content">
-  <div id="local-container" style="display:flex;flex-wrap:wrap;gap:10px;padding:20px;justify-content:center;"></div>
-</div>
-
-<div id="tab-groups" class="tab-content">
-  <div id="groups-container" style="display:flex;flex-wrap:wrap;gap:12px;padding:20px;justify-content:center;"></div>
-</div>
-
-<div class="footer">
-  <span id="footer-line">J.A.R.V.I.S MARK XLI · neurônios: <strong id="neuron-count">—</strong></span>
-</div>
-
-<script src="memory/neural_map_data.js"></script>
-<script>
-const GROUP_COLORS = {
-  Cerebro:      { bg:'rgba(0,212,255,.15)',  border:'#00D4FF', text:'#00D4FF', hex:'#00D4FF' },
-  Cultivo:      { bg:'rgba(46,204,113,.2)',  border:'#2ECC71', text:'#2ECC71', hex:'#2ECC71' },
-  Cannabis:     { bg:'rgba(39,174,96,.2)',   border:'#27AE60', text:'#2ECC71', hex:'#27AE60' },
-  Hidroponia:   { bg:'rgba(26,188,156,.18)', border:'#1ABC9C', text:'#1ABC9C', hex:'#1ABC9C' },
-  Imobiliario:  { bg:'rgba(52,152,219,.2)',  border:'#3498DB', text:'#3498DB', hex:'#3498DB' },
-  Estudo:       { bg:'rgba(155,89,182,.2)',  border:'#9B59B6', text:'#B084CC', hex:'#9B59B6' },
-  'Auto-estudo':{ bg:'rgba(127,140,141,.18)',border:'#95A5A6', text:'#BDC3C7', hex:'#95A5A6' },
-  Tecnologia:   { bg:'rgba(231,76,60,.18)',  border:'#E74C3C', text:'#FF7675', hex:'#E74C3C' },
-  Jogos:        { bg:'rgba(255,159,67,.18)',  border:'#FF9F43', text:'#FFB86B', hex:'#FF9F43' },
-  Financas:     { bg:'rgba(241,196,15,.2)',  border:'#F1C40F', text:'#F1C40F', hex:'#F1C40F' },
-  Viagem:       { bg:'rgba(26,188,156,.2)',  border:'#1ABC9C', text:'#1ABC9C', hex:'#1ABC9C' },
-  Biologia:     { bg:'rgba(52,211,153,.16)', border:'#34D399', text:'#34D399', hex:'#34D399' },
-  Saude:        { bg:'rgba(255,107,107,.16)',border:'#FF6B6B', text:'#FF8787', hex:'#FF6B6B' },
-  Receitas:     { bg:'rgba(230,126,34,.18)', border:'#E67E22', text:'#E67E22', hex:'#E67E22' },
-  Cultura:      { bg:'rgba(253,121,168,.16)',border:'#FD79A8', text:'#FD79A8', hex:'#FD79A8' },
-  Mundo_Pessoal:{ bg:'rgba(162,155,254,.16)',border:'#A29BFE', text:'#A29BFE', hex:'#A29BFE' },
-  Natureza:     { bg:'rgba(46,204,113,.15)', border:'#27AE60', text:'#27AE60', hex:'#27AE60' },
-  Rotinas:      { bg:'rgba(52,73,94,.2)',    border:'#34495E', text:'#7F8C8D', hex:'#7F8C8D' },
-  Outros:       { bg:'rgba(107,123,141,.16)',border:'#6B7B8D', text:'#9AAABA', hex:'#6B7B8D' },
-};
-
-let vaultData = null;
-let groupsData = null;
-
-function gc(name) { return GROUP_COLORS[name] || GROUP_COLORS.Outros; }
-
-function formatSize(b) { return b<1000 ? b+'B' : (b/1000).toFixed(0)+'KB'; }
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-}
-function obsidianUrl(path) {
-  return path ? 'obsidian://open?path=' + encodeURIComponent(path) : '#';
-}
-
-function renderLegend(groups) {
-  const el = document.getElementById('legend');
-  el.innerHTML = Object.entries(groups)
-    .sort((a,b)=>b[1].total-a[1].total)
-    .map(([name,info])=>{
-      const c = gc(name);
-      return `<span class="legend-item"><span class="dot" style="background:${c.hex}"></span>${name} <span style="opacity:.5">(${info.total})</span></span>`;
-    }).join('');
-}
-
-function renderGroupSections(vidx, gidx) {
-  const container = document.getElementById('vault-container');
-  container.innerHTML = '';
-  const entries = Object.entries(gidx.groups).sort((a,b) => b[1].total - a[1].total);
-  let idx = 0;
-  for (const [grpName, grpInfo] of entries) {
-    const c = gc(grpName);
-    const groupTotal = grpInfo.total;
-    const catNames = grpInfo.categories || [];
-
-    const sec = document.createElement('div');
-    sec.className = 'group-section';
-
-    const hdr = document.createElement('div');
-    hdr.className = 'group-header';
-    hdr.style.background = c.bg;
-    hdr.style.borderLeft = `3px solid ${c.hex}`;
-    hdr.innerHTML = `
-      <span class="g-arrow">▼</span>
-      <h2 style="color:${c.text}">${grpName}</h2>
-      <span class="g-count">${groupTotal} notas · ${catNames.length} categorias</span>
-    `;
-    hdr.addEventListener('click', () => {
-      hdr.classList.toggle('collapsed');
-      const body = sec.querySelector('.group-categories');
-      body.style.display = body.style.display === 'none' ? 'flex' : 'none';
-    });
-    sec.appendChild(hdr);
-
-    const body = document.createElement('div');
-    body.className = 'group-categories';
-
-    const sortedCats = catNames
-      .map(n => ({ name: n, info: vidx.categories[n] || { file_count: 0, sample_files: [] } }))
-      .sort((a,b) => b.info.file_count - a.info.file_count);
-
-    for (const {name: catName, info: catInfo} of sortedCats) {
-      const catColor = gidx.categories?.[catName]?.hex || c.hex;
-      const card = document.createElement('div');
-      card.className = 'category-card';
-      card.dataset.folder = catName.toLowerCase();
-      card.dataset.group = grpName.toLowerCase();
-      card.style.animationDelay = (idx++ % 20) * 0.04 + 's';
-      card.style.borderColor = catColor + '50';
-
-      const files = catInfo.sample_files || [];
-      const sourceText = Object.entries(catInfo.sources || {})
-        .sort((a,b)=>b[1]-a[1])
-        .slice(0, 3)
-        .map(([source,count]) => `<span class="source-pill">${esc(source)} ${count}</span>`)
-        .join('');
-      const fileText = files.slice(0, 5).map(f => {
-        const label = esc(f.title || f.name);
-        const href = obsidianUrl(f.path);
-        const meta = esc(f.source || f.relative_path || '');
-        return `<a class="file-link" href="${href}" title="${meta}">${label}</a>`;
-      }).join(' · ');
-      const more = catInfo.file_count > 5 ? `<div class="cat-more">+${catInfo.file_count - 5} mais</div>` : '';
-
-      card.innerHTML = `
-        <div class="accent-bar" style="background:${catColor}"></div>
-        <div class="top-row">
-          <span class="cat-name" style="color:${catColor}">${catName}</span>
-          <span class="cat-count">${catInfo.file_count}</span>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>🧠 J.A.R.V.I.S Memory Map</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                background: linear-gradient(135deg, #0a0a1a 0%, #001a2a 100%);
+                min-height: 100vh;
+                font-family: 'Courier New', monospace;
+                color: #00D4FF;
+                overflow-x: hidden;
+            }
+            .header {
+                text-align: center;
+                padding: 30px 20px;
+                border-bottom: 1px solid #0d3347;
+            }
+            .header h1 {
+                font-size: 2.5em;
+                text-shadow: 0 0 20px #00D4FF50;
+                animation: glow 2s ease-in-out infinite alternate;
+            }
+            .header p {
+                color: #5ab8cc;
+                margin-top: 10px;
+                font-size: 0.9em;
+            }
+            @keyframes glow {
+                from { text-shadow: 0 0 10px #00D4FF30; }
+                to { text-shadow: 0 0 30px #00D4FF80; }
+            }
+            .map-container {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                padding: 30px;
+                gap: 20px;
+            }
+            .category {
+                background: rgba(1, 13, 20, 0.9);
+                border: 1px solid #0d3347;
+                border-radius: 12px;
+                padding: 20px;
+                min-width: 280px;
+                max-width: 350px;
+                animation: fadeIn 0.5s ease-out;
+                transition: transform 0.3s, box-shadow 0.3s;
+            }
+            .category:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 30px #00D4FF20;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(20px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .category-header {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-bottom: 15px;
+                padding-bottom: 10px;
+                border-bottom: 1px solid #0d3347;
+            }
+            .category-icon {
+                font-size: 2em;
+            }
+            .category-name {
+                font-size: 1.2em;
+                font-weight: bold;
+                text-transform: uppercase;
+            }
+            .entry {
+                display: flex;
+                justify-content: space-between;
+                padding: 8px 10px;
+                margin: 5px 0;
+                background: rgba(13, 51, 71, 0.3);
+                border-radius: 6px;
+                transition: background 0.2s;
+            }
+            .entry:hover {
+                background: rgba(13, 51, 71, 0.6);
+            }
+            .entry-key {
+                color: #8ffcff;
+                font-weight: bold;
+            }
+            .entry-value {
+                color: #3a8a9a;
+                max-width: 180px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .center-node {
+                background: linear-gradient(135deg, #00D4FF20, #00D4FF10);
+                border: 2px solid #00D4FF;
+                border-radius: 50%;
+                width: 120px;
+                height: 120px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 0 auto 30px;
+                animation: pulse 2s ease-in-out infinite;
+            }
+            .center-node span {
+                font-size: 1.5em;
+            }
+            @keyframes pulse {
+                0%, 100% { box-shadow: 0 0 20px #00D4FF30; }
+                50% { box-shadow: 0 0 40px #00D4FF60; }
+            }
+            .footer {
+                text-align: center;
+                padding: 20px;
+                color: #5ab8cc;
+                font-size: 0.8em;
+                border-top: 1px solid #0d3347;
+            }
+            .color-bar {
+                height: 4px;
+                border-radius: 2px;
+                margin-bottom: 20px;
+            }
+            .vault-map { max-width: 1180px; margin: 10px auto 44px; padding: 0 30px; }
+            .vault-heading { border-left: 3px solid #00D4FF; padding: 10px 14px; margin: 8px 0 18px; background: rgba(0, 212, 255, .055); }
+            .vault-heading h2 { font-size: 1.15em; letter-spacing: .12em; }
+            .vault-heading p, .vault-stats { color: #5ab8cc; font-size: .85em; margin-top: 7px; }
+            .vault-filter { width: 100%; background: #031522; color: #baf7ff; border: 1px solid #1b6175; border-radius: 8px; padding: 13px 15px; font: inherit; outline: none; }
+            .vault-filter:focus { border-color: #00D4FF; box-shadow: 0 0 18px #00D4FF35; }
+            .vault-stats { margin: 12px 2px; }
+            .vault-categories { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+            .vault-category { background: rgba(1, 13, 20, .88); border: 1px solid #185269; border-radius: 9px; overflow: hidden; }
+            .vault-category summary { cursor: pointer; list-style: none; padding: 14px; display: flex; justify-content: space-between; gap: 12px; }
+            .vault-category summary::-webkit-details-marker { display: none; }
+            .vault-category[open] summary { border-bottom: 1px solid #16485c; background: rgba(0, 212, 255, .06); }
+            .vault-folder { color: #8ffcff; font-weight: bold; overflow-wrap: anywhere; }
+            .vault-meta { color: #5ab8cc; font-size: .78em; text-align: right; white-space: nowrap; }
+            .vault-notes { padding: 8px 14px 13px; max-height: 430px; overflow: auto; }
+            .vault-note { border-left: 2px solid #236b80; padding: 8px 10px; margin: 7px 0; background: rgba(13, 51, 71, .22); }
+            .vault-note strong { display: block; color: #b8f9ff; font-size: .88em; }
+            .vault-note span, .vault-more { display: block; margin-top: 4px; color: #5a9bab; font-size: .74em; overflow-wrap: anywhere; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>[BRAIN] J.A.R.V.I.S. MEMORY MAP</h1>
+            <p>Neural Memory Network -- Last sync: 2026-07-17 22:46</p>
         </div>
-        ${sourceText ? `<div class="source-line">${sourceText}</div>` : ''}
-        <div class="file-row">${fileText}</div>
-        ${more}
-      `;
-      body.appendChild(card);
-    }
-    sec.appendChild(body);
-    container.appendChild(sec);
-  }
-}
 
-function renderGroupsTab(gidx) {
-  const container = document.getElementById('groups-container');
-  container.innerHTML = '';
-  for (const [name, info] of Object.entries(gidx.groups).sort((a,b) => b[1].total - a[1].total)) {
-    const c = gc(name);
-    const card = document.createElement('div');
-    card.className = 'category-card';
-    card.style.borderColor = c.hex + '60';
-    card.style.minWidth = '220px';
-    card.style.maxWidth = '300px';
-    card.style.flex = '1 1 220px';
+        <div class="color-bar" style="background: linear-gradient(90deg, #4ECDC4, #FF6B6B, #95E1D3, #F38181, #AA96DA, #FCBAD3);"></div>
 
-    const cats = (info.categories || [])
-      .map(n => gidx.categories?.[n])
-      .filter(Boolean)
-      .sort((a,b) => b.count - a.count);
+        <div class="map-container">
+            <div class="center-node">
+                <span>[ROBOT]<br>J.A.R.V.I.S</span>
+            </div>
 
-    card.innerHTML = `
-      <div class="accent-bar" style="background:${c.hex}"></div>
-      <div class="top-row">
-        <span class="cat-name" style="color:${c.text};font-size:0.9em">${name}</span>
-        <span class="cat-count">${info.total}</span>
-      </div>
-      <div class="file-row">
-        ${cats.slice(0, 8).map(cat =>
-          `<span class="file-tag">${cat.count} ${Object.keys(gidx.categories).find(k => gidx.categories[k] === cat)?.replace(/_/g, ' ').substring(0, 20) || '?'}</span>`
-        ).join(' · ')}
-      </div>
-      ${cats.length > 8 ? `<div class="cat-more">+${cats.length - 8} subcategorias</div>` : ''}
-    `;
-    container.appendChild(card);
-    card.style.animationDelay = '0s';
-  }
-}
+            <div class="category" style="border-color: #4ECDC440;">
+                <div class="category-header">
+                    <span class="category-icon">[USER]</span>
+                    <span class="category-name" style="color: #4ECDC4;">identity</span>
+                </div>
 
-function renderLocalMemory() {
-  const container = document.getElementById('local-container');
-  const categories = {
-    'Identidade': { color:'#00D4FF', data:[
-      {k:'nome', v:'Lucas'},{k:'celular', v:'iPhone 13 Pro Max'}
-    ]},
-    'Preferências': { color:'#FF6B6B', data:[
-      {k:'navegador', v:'Chrome'},{k:'cérebro', v:'D:\\xxxx_memory'},{k:'spotify', v:'conectado'}
-    ]},
-    'Projetos': { color:'#F39C12', data:[
-      {k:'corretor_zona_leste', v:'Chatbot imobiliário SP'},{k:'jarvis_host', v:'GitHub'},{k:'cannabis_expansão', v:'500+ genéticas'}
-    ]},
-    'Relações': { color:'#A29BFE', data:[{k:'amigo', v:'Caio'}]},
-    'Desejos': { color:'#FCBAD3', data:[]},
-    'Notas Rápidas': { color:'#1ABC9C', data:[
-      {k:'cannabis_extraction', v:'diferentes métodos'},{k:'sarue_info', v:'marsupial noturno'},{k:'ollama_fechado', v:'usuário fechou Ollama'}
-    ]},
-    'Trabalho': { color:'#636E72', data:[{k:'corretagem_backoffice', v:'SP'},{k:'vendas_imoveis', v:'pipeline ativo'}]}
-  };
-  container.innerHTML = '';
-  for (const [cat, info] of Object.entries(categories)) {
-    const card = document.createElement('div');
-    card.className = 'category-card';
-    card.style.borderColor = info.color + '50';
-    card.innerHTML = `
-      <div class="accent-bar" style="background:${info.color}"></div>
-      <div class="top-row">
-        <span class="cat-name" style="color:${info.color}">${cat}</span>
-        <span class="cat-count">${info.data.length}</span>
-      </div>
-      <div class="file-row">
-        ${info.data.length === 0 ? '<span style="opacity:.3">vazio</span>' :
-          info.data.map(d => `<span class="key">${d.k}</span> <span class="val">${d.v.length > 28 ? d.v.slice(0,28)+'…' : d.v}</span>`).join('<br>')
-        }
-      </div>
-    `;
-    container.appendChild(card);
-  }
-}
+                <div class="entry">
+                    <span class="entry-key">name</span>
+                    <span class="entry-value" title="Lucas">Lucas</span>
+                </div>
 
-let _filterQ = '';
-function filterAll(q) {
-  _filterQ = q.toLowerCase().trim();
-  document.querySelectorAll('.category-card').forEach(card => {
-    const folder = (card.dataset.folder || '');
-    const group = (card.dataset.group || '');
-    const name = card.querySelector('.cat-name')?.textContent?.toLowerCase() || '';
-    const match = !_filterQ || folder.includes(_filterQ) || name.includes(_filterQ) || group.includes(_filterQ);
-    card.style.display = match ? '' : 'none';
-  });
-  // hide empty groups
-  document.querySelectorAll('.group-section').forEach(sec => {
-    const cards = sec.querySelectorAll('.category-card');
-    const visible = Array.from(cards).some(c => c.style.display !== 'none');
-    if (!sec.dataset._force) {
-      sec.style.display = visible ? '' : 'none';
-    }
-  });
-}
+                <div class="entry">
+                    <span class="entry-key">instagram_us...</span>
+                    <span class="entry-value" title="lucas_mond">lucas_mond</span>
+                </div>
 
-// Tab switching
-document.querySelectorAll('.tab-nav button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-nav button').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-  });
-});
+                <div class="entry">
+                    <span class="entry-key">job_status</span>
+                    <span class="entry-value" title="working">working</span>
+                </div>
 
-function loadMapData() {
-  const embeddedIndex = window.JARVIS_VAULT_INDEX || null;
-  const embeddedGroups = window.JARVIS_VAULT_GROUPS || null;
-  if (embeddedIndex || embeddedGroups) {
-    return Promise.resolve([embeddedIndex, embeddedGroups]);
-  }
-  return Promise.all([
-    fetch('memory/vault_index.json').then(r => r.ok ? r.json() : null),
-    fetch('memory/vault_groups.json').then(r => r.ok ? r.json() : null),
-  ]);
-}
+            </div>
 
-// Load data
-loadMapData().then(([vidx, gidx]) => {
-  if (!vidx && !gidx) {
-    document.getElementById('vault-container').innerHTML =
-      '<div style="text-align:center;padding:60px;color:#4a5a6a;">Arquivos de índice não encontrados.<br>Execute o sistema para gerar memory/vault_index.json e memory/vault_groups.json</div>';
-    return;
-  }
-  // use vault_groups as primary; fallback to vault_index
-  if (gidx) {
-    groupsData = gidx;
-    vaultData = vidx;
-    document.getElementById('stats-line').innerHTML =
-      `<strong>${gidx.total}</strong> notas · <strong>${gidx.total_categories}</strong> categorias · <strong>${Object.keys(gidx.groups).length}</strong> grupos coloridos · <span style="opacity:.6">${new Date(gidx.updated).toLocaleString()}</span>`;
-    document.getElementById('neuron-count').textContent = gidx.total;
-    renderLegend(gidx.groups);
-    renderGroupSections(vidx || {categories:{}}, gidx);
-    renderGroupsTab(gidx);
-  } else if (vidx) {
-    vaultData = vidx;
-    document.getElementById('stats-line').textContent =
-      `${vidx.total_files} notas em ${vidx.total_categories} categorias`;
-    document.getElementById('neuron-count').textContent = vidx.total_files;
-    // build flat view
-    renderGroupSections(vidx, {groups:{Outros:{total:vidx.total_files,categories:Object.keys(vidx.categories)}}, categories:{}});
-  }
-  renderLocalMemory();
-}).catch(() => {
-  document.getElementById('vault-container').innerHTML =
-    '<div style="text-align:center;padding:60px;color:#4a5a6a;">Erro ao carregar dados do vault.</div>';
-});
-</script>
-</body>
-</html>
+            <div class="category" style="border-color: #FF6B6B40;">
+                <div class="category-header">
+                    <span class="category-icon">[CONFIG]</span>
+                    <span class="category-name" style="color: #FF6B6B;">preferences</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">attended_con...</span>
+                    <span class="entry-value" title="AC/DC">AC/DC</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">vision_recor...</span>
+                    <span class="entry-value" title="process_delete">process_delete</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">screen_captu...</span>
+                    <span class="entry-value" title="process_only_no_screenshot_...">process_only_no_screenshot_...</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">braille_save...</span>
+                    <span class="entry-value" title="only_confirmed_100_percent">only_confirmed_100_percent</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">vision_learn...</span>
+                    <span class="entry-value" title="stable-confirmation local f...">stable-confirmation local f...</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">default_spot...</span>
+                    <span class="entry-value" title="Rock PRO">Rock PRO</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">default_disc...</span>
+                    <span class="entry-value" title="Send 'boa noite' to Kaui on...">Send 'boa noite' to Kaui on...</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">model_cost_p...</span>
+                    <span class="entry-value" title="Gemini is free, user doesn'...">Gemini is free, user doesn'...</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">default_browser</span>
+                    <span class="entry-value" title="chrome">chrome</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">name_change_key</span>
+                    <span class="entry-value" title="tal_tal_tal">tal_tal_tal</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">favorite_games</span>
+                    <span class="entry-value" title="Minecraft, Brawlhalla">Minecraft, Brawlhalla</span>
+                </div>
+
+            </div>
+
+            <div class="category" style="border-color: #95E1D340;">
+                <div class="category-header">
+                    <span class="category-icon">[ROCKET]</span>
+                    <span class="category-name" style="color: #95E1D3;">projects</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">facebook_ads...</span>
+                    <span class="entry-value" title="Strategy for Facebook ADS c...">Strategy for Facebook ADS c...</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">Task Bar Her...</span>
+                    <span class="entry-value" title="23000 gold">23000 gold</span>
+                </div>
+
+            </div>
+
+            <div class="category" style="border-color: #F3818140;">
+                <div class="category-header">
+                    <span class="category-icon">[PEOPLE]</span>
+                    <span class="category-name" style="color: #F38181;">relationships</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">sister_name</span>
+                    <span class="entry-value" title="Nicole">Nicole</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">brother_in_l...</span>
+                    <span class="entry-value" title="Vitor">Vitor</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">relationship</span>
+                    <span class="entry-value" title="friend">friend</span>
+                </div>
+
+            </div>
+
+            <div class="category" style="border-color: #AA96DA40;">
+                <div class="category-header">
+                    <span class="category-icon">[IDEA]</span>
+                    <span class="category-name" style="color: #AA96DA;">wishes</span>
+                </div>
+                <div style="color:#3a8a9a;text-align:center;padding:20px;">No entries</div>
+            </div>
+
+            <div class="category" style="border-color: #FCBAD340;">
+                <div class="category-header">
+                    <span class="category-icon">[NOTE]</span>
+                    <span class="category-name" style="color: #FCBAD3;">notes</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">sleep_schedule</span>
+                    <span class="entry-value" title="goes to sleep early at 10 PM">goes to sleep early at 10 PM</span>
+                </div>
+
+                <div class="entry">
+                    <span class="entry-key">schedule</span>
+                    <span class="entry-value" title="working now, sleeps early (...">working now, sleeps early (...</span>
+                </div>
+
+            </div>
+
+            <div class="category" style="border-color: #00D4FF40;">
+                <div class="category-header">
+                    <span class="category-icon">📁</span>
+                    <span class="category-name" style="color: #00D4FF;">job</span>
+                </div>
+                <div style="color:#3a8a9a;text-align:center;padding:20px;">No entries</div>
+            </div>
+
+            <div class="category" style="border-color: #00D4FF40;">
+                <div class="category-header">
+                    <span class="category-icon">📁</span>
+                    <span class="category-name" style="color: #00D4FF;">emotions</span>
+                </div>
+                <div style="color:#3a8a9a;text-align:center;padding:20px;">No entries</div>
+            </div>
+
+            <div class="category" style="border-color: #00D4FF40;">
+                <div class="category-header">
+                    <span class="category-icon">📁</span>
+                    <span class="category-name" style="color: #00D4FF;">technology</span>
+                </div>
+                <div style="color:#3a8a9a;text-align:center;padding:20px;">No entries</div>
+            </div>
+
+            <div class="category" style="border-color: #00D4FF40;">
+                <div class="category-header">
+                    <span class="category-icon">📁</span>
+                    <span class="category-name" style="color: #00D4FF;">work</span>
+                </div>
+                <div style="color:#3a8a9a;text-align:center;padding:20px;">No entries</div>
+            </div>
+
+        </div>
+
+        <section id="vault-map" class="vault-map" aria-live="polite">
+            <div class="vault-heading">
+                <h2>VAULT NEURAL INDEX</h2>
+                <p id="vault-status">Carregando índice completo do cofre...</p>
+            </div>
+            <input id="vault-filter" class="vault-filter" type="search" placeholder="Filtrar pastas e notas do cofre" autocomplete="off">
+            <div id="vault-stats" class="vault-stats"></div>
+            <div id="vault-categories" class="vault-categories"></div>
+        </section>
+
+        <script src="memory/neural_map_data.js"></script>
+        <script>
+        (() => {
+            const index = window.JARVIS_VAULT_INDEX;
+            const groups = window.JARVIS_VAULT_GROUPS;
+            const status = document.getElementById('vault-status');
+            const stats = document.getElementById('vault-stats');
+            const target = document.getElementById('vault-categories');
+            const filter = document.getElementById('vault-filter');
+            if (!index || !index.categories) {
+                status.textContent = 'Índice indisponível. O JARVIS irá reconstruí-lo antes da próxima abertura.';
+                return;
+            }
+            const entries = Object.entries(index.categories).sort((a, b) => b[1].file_count - a[1].file_count);
+            const updated = index.updated ? new Date(index.updated).toLocaleString('pt-BR') : 'agora';
+            status.textContent = `Cofre sincronizado em ${updated}`;
+            stats.textContent = `${index.total_files || 0} notas indexadas · ${index.total_categories || entries.length} categorias`;
+            const normalized = value => String(value || '').toLocaleLowerCase('pt-BR');
+            const render = () => {
+                const query = normalized(filter.value).trim();
+                target.replaceChildren();
+                let visible = 0;
+                entries.forEach(([folder, data]) => {
+                    const samples = Array.isArray(data.sample_files) ? data.sample_files : [];
+                    const haystack = normalized(folder + ' ' + samples.map(item => `${item.name || ''} ${item.title || ''}`).join(' '));
+                    if (query && !haystack.includes(query)) return;
+                    visible += 1;
+                    const card = document.createElement('details');
+                    card.className = 'vault-category';
+                    const summary = document.createElement('summary');
+                    const group = groups && groups.categories && groups.categories[folder] ? groups.categories[folder].group : 'Cofre';
+                    const title = document.createElement('span');
+                    title.className = 'vault-folder';
+                    title.textContent = folder;
+                    const meta = document.createElement('span');
+                    meta.className = 'vault-meta';
+                    meta.textContent = `${group} · ${data.file_count || 0} notas`;
+                    summary.append(title, meta);
+                    const list = document.createElement('div');
+                    list.className = 'vault-notes';
+                    let notesLoaded = false;
+                    const loadNotes = () => {
+                        if (notesLoaded) return;
+                        notesLoaded = true;
+                        samples.forEach(note => {
+                            const row = document.createElement('div');
+                            row.className = 'vault-note';
+                            const noteTitle = document.createElement('strong');
+                            noteTitle.textContent = note.title || note.name || 'Nota sem título';
+                            const notePath = document.createElement('span');
+                            notePath.textContent = note.relative_path || note.name || '';
+                            row.append(noteTitle, notePath);
+                            list.append(row);
+                        });
+                        if ((data.file_count || 0) > samples.length) {
+                            const more = document.createElement('div');
+                            more.className = 'vault-more';
+                            more.textContent = `+ ${data.file_count - samples.length} notas indexadas nesta pasta`;
+                            list.append(more);
+                        }
+                    };
+                    card.addEventListener('toggle', () => { if (card.open) loadNotes(); });
+                    card.append(summary, list);
+                    target.append(card);
+                });
+                if (!visible) target.textContent = 'Nenhuma pasta ou nota encontrada.';
+            };
+            filter.addEventListener('input', render);
+            render();
+        })();
+        </script>
+
+        <div class="footer">
+            <p>🧠 Memory nodes: 10 categories | 📊 Total entries: 21</p>
+            <p style="margin-top: 10px;">Generated by J.A.R.V.I.S. MARK XL</p>
+        </div>
+    </body>
+    </html>

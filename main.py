@@ -181,6 +181,8 @@ from actions.code_helper       import code_helper
 from actions.dev_agent         import dev_agent
 from actions.web_search        import web_search as web_search_action
 from actions.image_search      import image_search as image_search_action
+from actions.image_generation  import image_generation as image_generation_action
+from actions.video_generation  import video_generation as video_generation_action
 from actions.maps_mode         import maps_mode as maps_mode_action
 from actions.wallpaper_engine  import wallpaper_engine as wallpaper_engine_action
 from actions.computer_control  import computer_control
@@ -201,8 +203,12 @@ from actions.jarvis_lab        import jarvis_lab as jarvis_lab_action
 from actions.iphone_bridge     import iphone_bridge as iphone_bridge_action
 from actions.social_control    import social_control as social_control_action
 from actions.iphone_shortcuts  import iphone_shortcuts as iphone_shortcuts_action
+from actions.jarvis_bridge_gateway import jarvis_bridge_gateway as jarvis_bridge_gateway_action
+from actions.windows_notifications import windows_notifications as windows_notifications_action
 from actions.operation_memory  import operation_memory as operation_memory_action
-from actions.startup_animation import run_startup_animation, enable_clap_detection
+from actions.startup_animation import (
+    run_startup_animation, enable_clap_detection, wait_for_boot_screen, signal_native_boot_voice, signal_native_boot_voice_finished,
+)
 
 def normalize_path(path):
     if path and len(path) == 2 and path[1] == ":":
@@ -617,6 +623,39 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "image_generation",
+        "description": "Generates and saves a NEW original AI image locally. ALWAYS use this tool when the user says in Portuguese: criar imagem, crie uma imagem, gerar imagem, gere uma imagem, fazer arte, criar arte, fazer wallpaper, desenhar, ilustrar; or equivalent English requests. Do NOT use image_search for these requests: image_search is only for finding existing web/stock media. Cloudflare runs first and Gemini silently takes over if it fails.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "generate (default) | status"},
+                "prompt": {"type": "STRING", "description": "Image request; JARVIS enriches it before rendering"},
+                "context": {"type": "STRING", "description": "Optional story, mood, composition or constraints"},
+                "enhance": {"type": "BOOLEAN", "description": "Use visual-director enhancement; default true"},
+                "provider": {"type": "STRING", "description": "auto (default) | cloudflare | gemini"},
+                "folder": {"type": "STRING", "description": "Optional output folder"},
+                "filename": {"type": "STRING", "description": "Optional filename"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "video_generation",
+        "description": "Creates AI videos through the user's persistent Google Flow browser session. ALWAYS use this tool when the user says criar video, gerar video, fazer video, animar imagem, transformar imagem em video, or equivalent. Do NOT use image_search for new video generation; image_search only finds existing media.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "open/setup/login (open persistent Flow session) | status | generate/create"},
+                "prompt": {"type": "STRING", "description": "Video idea or motion brief"},
+                "image_path": {"type": "STRING", "description": "Optional local image for image-to-video"},
+                "reuse_last_image": {"type": "BOOLEAN", "description": "Animate the latest image created by JARVIS"},
+                "duration": {"type": "INTEGER", "description": "Requested seconds; free Flow preset is calibrated to 8"},
+                "provider": {"type": "STRING", "description": "flow (default)"}
+            },
+            "required": []
+        }
+    },
+    {
         "name": "wallpaper_engine",
         "description": (
             "Controls Wallpaper Engine through its command-line interface. Use for opening Wallpaper Engine, pausing/resuming/stopping/muting wallpapers, "
@@ -745,6 +784,32 @@ TOOL_DECLARATIONS = [
                 "limit": {"type": "INTEGER", "description": "Number of events to list"},
                 "type": {"type": "STRING", "description": "Event type for test/record"},
                 "message": {"type": "STRING", "description": "Test event message"},
+                "silent": {"type": "BOOLEAN", "description": "When true, do not speak a follow-up"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "windows_notifications",
+        "description": "Reads new Windows toast notifications for JARVIS. Use when the user asks Jarvis to read, connect to, mute or manage desktop notifications. It requests Windows permission once, records notifications silently, and can read them aloud.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "start/connect | stop | status | mute | unmute | voice_on | voice_off"},
+                "app": {"type": "STRING", "description": "App name for mute/unmute, e.g. Rock N' Cash"},
+                "silent": {"type": "BOOLEAN", "description": "When true, do not speak a follow-up"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "jarvis_bridge_gateway",
+        "description": "Runs the private JARVIS Bridge beta PWA gateway for a paired iPhone. Use it to start, stop, check status, generate a pairing code, or revoke paired browser access.",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "start | stop | restart | status | pair | reset"},
+                "port": {"type": "INTEGER", "description": "Optional local port; default 8796"},
                 "silent": {"type": "BOOLEAN", "description": "When true, do not speak a follow-up"}
             },
             "required": []
@@ -1676,9 +1741,28 @@ TOOL_DECLARATIONS = [
     },
 ]
 
+def _startup_formal_greeting(user_name: str) -> str:
+    """Build the final local-time greeting spoken after the boot sequence."""
+    from datetime import datetime
+
+    now = datetime.now()
+    period = "Bom dia" if 5 <= now.hour < 12 else "Boa tarde" if 12 <= now.hour < 18 else "Boa noite"
+    months = (
+        "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+        "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+    )
+    hour_text = "uma hora" if now.hour == 1 else f"{now.hour} horas"
+    title = os.environ.get("MARK_XL_USER_TITLE", "senhor").strip() or "senhor"
+    display_name = (user_name or "Sir").strip()
+    return (
+        f"{period}, {title} {display_name}. São {hour_text} do dia "
+        f"{now.day} de {months[now.month - 1]} de {now.year}. Em que posso ajudar?"
+    )
+
+
 class JarvisLive:
 
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui: JarvisUI, user_name: str = "Sir"):
         self.ui             = ui
         self.session        = None
         self.audio_in_queue = None
@@ -1692,10 +1776,27 @@ class JarvisLive:
         self._voice_metric_ts: dict[str, float] = {"user": 0.0, "ai": 0.0}
         self._temporary_mute = False
         self._temporary_mute_lock = threading.Lock()
+        # The boot narration is an application-start event, never a reconnect event.
+        self._boot_voice_requested = False
+        self._boot_voice_in_progress = False
+        self.user_name = user_name
+        self._notification_monitor_started = False
 
+    def _clear_turn_completion(self) -> None:
+        event = self._turn_done_event
+        if not event:
+            return
+        try:
+            if self._loop and self._loop.is_running():
+                self._loop.call_soon_threadsafe(event.clear)
+            else:
+                event.clear()
+        except RuntimeError:
+            pass
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
             return
+        self._clear_turn_completion()
         if self._handle_local_text_command(text):
             return
         asyncio.run_coroutine_threadsafe(
@@ -1705,13 +1806,17 @@ class JarvisLive:
             ),
             self._loop
         )
-
     def set_speaking(self, value: bool):
         with self._speaking_lock:
             self._is_speaking = value
         if value:
             self.ui.set_state("SPEAKING")
-        elif self.is_temporary_muted():
+            return
+        boot_narration_finished = self._boot_voice_in_progress
+        self._boot_voice_in_progress = False
+        if boot_narration_finished:
+            signal_native_boot_voice_finished()
+        if self.is_temporary_muted():
             self.ui.set_state("WAKE MUTED")
         elif not self.ui.muted:
             self.ui.set_state("LISTENING")
@@ -1719,6 +1824,7 @@ class JarvisLive:
     def speak(self, text: str):
         if not self._loop or not self.session or self.is_temporary_muted():
             return
+        self._clear_turn_completion()
         asyncio.run_coroutine_threadsafe(
             self.session.send_client_content(
                 turns={"parts": [{"text": text}]},
@@ -1726,7 +1832,6 @@ class JarvisLive:
             ),
             self._loop
         )
-
     def speak_error(self, tool_name: str, error: str):
         short = str(error)[:120]
         self.ui.write_log(f"ERR: {tool_name} — {short}")
@@ -1773,6 +1878,20 @@ class JarvisLive:
                 break
 
     def _handle_local_text_command(self, text: str) -> bool:
+        normalized = " ".join(str(text or "").casefold().split())
+        bridge_aliases = {
+            "iniciar bridge", "inicia bridge", "liga bridge", "ligar bridge",
+            "abrir bridge", "abre bridge", "ativar bridge", "iniciar jarvis bridge",
+            "ligar jarvis bridge", "ponte jarvis", "ponte iphone",
+        }
+        if normalized in bridge_aliases:
+            def start_bridge_now():
+                result = jarvis_bridge_gateway_action({"action": "start", "silent": True}, player=self.ui)
+                self.ui.write_log(f"SYS: {result}")
+                self.speak("Bridge iniciada e pronta para pareamento.")
+
+            threading.Thread(target=start_bridge_now, daemon=True).start()
+            return True
         if _is_temp_mute_command(text):
             self._set_temporary_mute(True)
             return True
@@ -1973,6 +2092,14 @@ class JarvisLive:
                 r = await loop.run_in_executor(None, lambda: iphone_shortcuts_action(parameters=args, player=self.ui, speak=self.speak))
                 result = r or "iPhone Shortcuts bridge updated."
 
+            elif name == "windows_notifications":
+                r = await loop.run_in_executor(None, lambda: windows_notifications_action(parameters=args, player=self.ui, speak=self.speak))
+                result = r or "Windows notification monitor updated."
+
+            elif name == "jarvis_bridge_gateway":
+                r = await loop.run_in_executor(None, lambda: jarvis_bridge_gateway_action(parameters=args, player=self.ui, speak=self.speak))
+                result = r or "JARVIS Bridge gateway updated."
+
             elif name == "operation_memory":
                 r = await loop.run_in_executor(None, lambda: operation_memory_action(parameters=args, player=self.ui, speak=self.speak))
                 result = r or "Operational memory updated."
@@ -2029,6 +2156,12 @@ class JarvisLive:
                 r = await loop.run_in_executor(None, lambda: image_search_action(parameters=args, player=self.ui, speak=self.speak))
                 result = r or "Done."
 
+            elif name == "image_generation":
+                r = await loop.run_in_executor(None, lambda: image_generation_action(parameters=args, player=self.ui, speak=self.speak))
+                result = r or "Done."
+            elif name == "video_generation":
+                r = await loop.run_in_executor(None, lambda: video_generation_action(parameters=args, player=self.ui, speak=self.speak))
+                result = r or "Done."
             elif name == "wallpaper_engine":
                 r = await loop.run_in_executor(None, lambda: wallpaper_engine_action(parameters=args, player=self.ui, speak=self.speak))
                 result = r or "Done."
@@ -2736,7 +2869,7 @@ type: index-note
                 "silent": True,
                 "no_spoken_followup": True,
             })
-        silent_capable = {"iphone_bridge", "iphone_shortcuts", "social_control", "operation_memory"}
+        silent_capable = {"iphone_bridge", "iphone_shortcuts", "windows_notifications", "social_control", "operation_memory"}
         report_actions = {"status", "info", "events", "list", "listar", "latest", "ultimo", "last", "templates", "modelos", "url", "link", "help", "ajuda", "summary", "resumo"}
         action_name = str(args.get("action") or "").lower().strip()
         if name in silent_capable and (bool(args.get("silent")) or action_name not in report_actions):
@@ -2752,8 +2885,9 @@ type: index-note
     async def _send_realtime(self):
         while True:
             msg = await self.out_queue.get()
+            if self._turn_done_event:
+                self._turn_done_event.clear()
             await self.session.send_realtime_input(media=msg)
-
     def _put_out_queue_drop_oldest(self, msg):
         try:
             self.out_queue.put_nowait(msg)
@@ -2779,8 +2913,6 @@ type: index-note
                     if audio_chunks:
                         if self.is_temporary_muted():
                             continue
-                        if self._turn_done_event and self._turn_done_event.is_set():
-                            self._turn_done_event.clear()
                         for chunk in audio_chunks:
                             self.audio_in_queue.put_nowait(chunk)
 
@@ -2940,7 +3072,7 @@ type: index-note
                     try:
                         chunk = await asyncio.wait_for(
                             self.audio_in_queue.get(),
-                            timeout=0.5
+                            timeout=0.15 if self._boot_voice_in_progress else 0.5
                         )
                     except asyncio.TimeoutError:
                         # Only stop speaking if queue is empty for a while AND turn is done
@@ -2949,7 +3081,7 @@ type: index-note
                             and self._turn_done_event.is_set()
                             and self.audio_in_queue.empty()
                             and last_audio_at > 0.0
-                            and time.time() - last_audio_at >= SPEECH_TAIL_SECONDS
+                            and time.time() - last_audio_at >= (0.12 if self._boot_voice_in_progress else SPEECH_TAIL_SECONDS)
                         ):
                             self.set_speaking(False)
                             self._turn_done_event.clear()
@@ -3052,7 +3184,43 @@ type: index-note
                     print("[JARVIS] OK Connected.")
                     self.ui.set_state("LISTENING")
                     self.ui.write_log("SYS: JARVIS online.")
+                    if not self._notification_monitor_started and os.environ.get("MARK_XL_WINDOWS_NOTIFICATIONS_AUTOSTART", "1") != "0":
+                        self._notification_monitor_started = True
 
+                        def start_windows_notification_monitor():
+                            def notification_speak(message: str):
+                                with self._speaking_lock:
+                                    if self._is_speaking:
+                                        return
+                                self.speak(message)
+
+                            result = windows_notifications_action(
+                                {"action": "start", "silent": True},
+                                player=self.ui,
+                                speak=notification_speak,
+                            )
+                            self.ui.write_log(f"SYS: {result}")
+
+                        threading.Thread(target=start_windows_notification_monitor, daemon=True).start()
+                    if (
+                        use_audio
+                        and not self._boot_voice_requested
+                        and os.environ.get("MARK_XL_BOOT_VOICE", "1") != "0"
+                        and os.environ.get("MARK_XL_BOOT_GUI", "1") != "0"
+                    ):
+                        self._boot_voice_requested = True
+                        boot_screen_ready = await asyncio.to_thread(wait_for_boot_screen, 12.0)
+                        if boot_screen_ready:
+                            signal_native_boot_voice()
+                            self._boot_voice_in_progress = True
+                            self.speak(
+                                "Use uma voz séria, grave, controlada e sem entusiasmo. Fale esta sequência de inicialização em português a aproximadamente 1,2 vezes a velocidade normal, com articulação clara e pausas curtas: "
+                                "Ativando canal de voz nativo. Conectando backend neural. "
+                                "Verificando enlace Bluetooth. Sincronizando córtex neural. "
+                                "Carregando visão computacional. Automação desktop online. "
+                                "Sincronizando ponte iPhone. Sistemas avançados online. Jarvis pronto. "
+                                f"{_startup_formal_greeting(self.user_name)}"
+                            )
                     # Only start audio tasks if audio mode is enabled
                     if use_audio:
                         tg.create_task(self._send_realtime())
@@ -3099,15 +3267,13 @@ type: index-note
             await asyncio.sleep(delay)
 
 def main():
-    if os.environ.get("MARK_XL_BOOT_ANIMATION", "1") != "0":
-        run_startup_animation(theme_color="magenta")
-
     # Load user name from memory for personalized greeting
     from memory.memory_manager import load_memory
     memory = load_memory()
     user_name = memory.get("identity", {}).get("name", {}).get("value", "Sir")
 
     ui = JarvisUI("face.png")
+    ui.set_startup_visible(False)
     if os.environ.get("MARK_XL_PRELOAD_NEURAL") == "1":
         _start_neural_background_load(delay=30.0)
 
@@ -3122,6 +3288,18 @@ def main():
             ui.write_log(f"SYS: iPhone Shortcuts Bridge offline: {str(exc)[:120]}")
 
     threading.Thread(target=start_iphone_shortcuts_bridge, daemon=True).start()
+
+    def start_jarvis_bridge_gateway():
+        if os.environ.get("MARK_XL_JARVIS_BRIDGE_AUTOSTART", "1") == "0":
+            return
+        time.sleep(3)
+        try:
+            result = jarvis_bridge_gateway_action({"action": "start", "silent": True}, player=ui)
+            ui.write_log(f"SYS: {result}")
+        except Exception as exc:
+            ui.write_log(f"SYS: JARVIS Bridge offline: {str(exc)[:120]}")
+
+    threading.Thread(target=start_jarvis_bridge_gateway, daemon=True).start()
 
     # Define clap callback to wake JARVIS
     def on_clap():
@@ -3143,13 +3321,17 @@ def main():
 
     def runner():
         ui.wait_for_api_key()
-        jarvis = JarvisLive(ui)
+        jarvis = JarvisLive(ui, user_name=user_name)
         try:
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:
             print("\n🔴 Shutting down...")
 
     threading.Thread(target=runner, daemon=True).start()
+    if os.environ.get("MARK_XL_BOOT_ANIMATION", "1") != "0":
+        time.sleep(2.0)  # Allow the native Jarvis voice session to become ready first.
+        run_startup_animation(theme_color="magenta")
+    ui.set_startup_visible(True)
     ui.root.mainloop()
 
 if __name__ == "__main__":

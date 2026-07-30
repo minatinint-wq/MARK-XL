@@ -46,6 +46,9 @@ config/*secret*.json
 config/*token*.json
 config/iphone_shortcuts.json
 config/local_llm.json
+config/jarvis_bridge.json
+config/jarvis_relay.json
+config/iphone_social_config.html
 
 # Personal/generated memory
 memory/*.json

@@ -37,6 +37,297 @@ def _set_cursor(visible: bool):
 def _env_enabled(name: str, default: str = "0") -> bool:
     return str(os.environ.get(name, default)).lower().strip() in {"1", "true", "yes", "on"}
 
+_BOOT_SCREEN_VISIBLE = threading.Event()
+_BOOT_VOICE_STARTED = threading.Event()
+_BOOT_NARRATION_FINISHED = threading.Event()
+
+
+def wait_for_boot_screen(timeout: float = 12.0) -> bool:
+    """Allow native audio to wait until the visual boot is visible."""
+    return _BOOT_SCREEN_VISIBLE.wait(timeout=max(0.0, timeout))
+
+
+def signal_native_boot_voice() -> None:
+    """Start visual module progress with the native Jarvis voice prompt."""
+    _BOOT_VOICE_STARTED.set()
+
+
+def signal_native_boot_voice_finished() -> None:
+    """Release the final boot screen only after the spoken boot has ended."""
+    _BOOT_NARRATION_FINISHED.set()
+def _activate_pyautogui() -> bool:
+    """Prepare desktop automation without sending any input to the user."""
+    try:
+        import pyautogui
+        pyautogui.FAILSAFE = True
+        pyautogui.PAUSE = 0.05
+        return True
+    except Exception as exc:
+        print(f"[JARVIS] Desktop automation unavailable: {exc}")
+        return False
+
+
+def _play_boot_sound(kind: str = "pulse") -> None:
+    """Play small local synth cues without relying on external audio files."""
+    if os.name != "nt" or not _env_enabled("MARK_XL_BOOT_SFX", "1"):
+        return
+
+    tones = {
+        "wake": ((440, 35), (660, 45), (990, 70)),
+        "pulse": ((780, 24), (1120, 32)),
+        "ready": ((660, 45), (880, 55), (1320, 90)),
+    }.get(kind, ())
+
+    def play() -> None:
+        try:
+            import winsound
+            for frequency, duration in tones:
+                winsound.Beep(frequency, duration)
+        except Exception:
+            pass
+
+    threading.Thread(target=play, daemon=True, name="JarvisBootSFX").start()
+
+
+class _ParticleBed:
+    """Loop the composed electronic boot texture without competing with speech."""
+
+    def __init__(self) -> None:
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._asset = Path(__file__).resolve().parent.parent / "assets" / "audio" / "jarvis_boot_electronic_mix.wav"
+
+    def start(self) -> None:
+        if not self._asset.exists():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True, name="JarvisElectronicBed")
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=0.8)
+
+    def _load_texture(self):
+        import wave
+        import numpy as np
+
+        with wave.open(str(self._asset), "rb") as source:
+            sample_rate = source.getframerate()
+            channels = source.getnchannels()
+            width = source.getsampwidth()
+            frames = source.readframes(source.getnframes())
+        if width != 2:
+            raise ValueError("Formato de textura de boot não suportado")
+        audio = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32768.0
+        if channels > 1:
+            audio = audio.reshape(-1, channels).mean(axis=1)
+        return audio, sample_rate
+
+    def _run(self) -> None:
+        try:
+            import numpy as np
+            import sounddevice as sd
+
+            audio, sample_rate = self._load_texture()
+        except Exception:
+            return
+        if not len(audio):
+            return
+
+        volume = max(0.0, min(1.0, float(os.environ.get("MARK_XL_BOOT_PARTICLE_VOLUME", "0.32"))))
+        block_size = 1024
+        # Each boot starts at another point of the non-linear composition.
+        position = random.randrange(len(audio))
+
+        try:
+            with sd.OutputStream(samplerate=sample_rate, channels=1, dtype="float32", blocksize=block_size) as stream:
+                while not self._stop.is_set():
+                    end = position + block_size
+                    if end <= len(audio):
+                        frame = audio[position:end]
+                    else:
+                        frame = np.concatenate((audio[position:], audio[:end % len(audio)]))
+                    position = end % len(audio)
+                    stream.write(np.clip(frame * volume, -0.42, 0.42).astype(np.float32).reshape(-1, 1))
+        except Exception:
+            return
+def _run_futuristic_loading_screen(pyautogui_ready: bool) -> bool:
+    """Show the visual boot sequence and announce each module in order."""
+    try:
+        from PyQt6.QtCore import QEventLoop, Qt, QTimer
+        from PyQt6.QtGui import QColor, QFont
+        from PyQt6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout, QWidget
+    except Exception:
+        return False
+
+    modules = [
+        ("VOICE", "CANAL DE VOZ NATIVO", "Ativando canal de voz nativo."),
+        ("BACKEND", "BACKEND NEURAL", "Conectando backend neural."),
+        ("BLUETOOTH", "LINK BLUETOOTH", "Verificando enlace Bluetooth."),
+        ("CORTEX", "CÓRTEX NEURAL", "Sincronizando córtex neural."),
+        ("VISION", "VISÃO COMPUTACIONAL", "Carregando visão computacional."),
+        ("AUTOMATION", "AUTOMAÇÃO DESKTOP", "Automação desktop online." if pyautogui_ready else "Automação desktop em modo manual."),
+        ("BRIDGE", "PONTE IPHONE", "Sincronizando ponte móvel."),
+        ("NEXUS", "NEXUS OPERACIONAL", "Sistemas avançados online. Jarvis pronto."),
+    ]
+
+    _BOOT_SCREEN_VISIBLE.clear()
+    _BOOT_VOICE_STARTED.clear()
+    app = QApplication.instance() or QApplication(sys.argv)
+    screen = QWidget()
+    screen.setWindowTitle("JARVIS // NEURAL BOOT")
+    screen.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+    screen.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    screen.setFixedSize(820, 680)
+    screen.setStyleSheet("background:#02070e; color:#d8f8ff;")
+
+    root = QVBoxLayout(screen)
+    root.setContentsMargins(28, 26, 28, 24)
+    root.setSpacing(14)
+
+    eyebrow = QLabel("JARVIS // NEURAL SYSTEM BOOT")
+    eyebrow.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+    eyebrow.setStyleSheet("color:#00d4ff; letter-spacing:3px;")
+    root.addWidget(eyebrow)
+
+    title = QLabel("INICIALIZANDO\nSISTEMAS")
+    title.setFont(QFont("Segoe UI", 31, QFont.Weight.Bold))
+    title.setStyleSheet("color:#e9fbff; line-height:1.0;")
+    root.addWidget(title)
+
+    state = QLabel("AGUARDANDO CANAL NATIVO")
+    state.setFont(QFont("Consolas", 12, QFont.Weight.Bold))
+    state.setStyleSheet("color:#ffb000; padding:8px 10px; border:1px solid #694c00; background:#120e02;")
+    root.addWidget(state)
+
+    progress = QProgressBar()
+    progress.setRange(0, len(modules))
+    progress.setValue(0)
+    progress.setTextVisible(False)
+    progress.setFixedHeight(8)
+    progress.setStyleSheet("QProgressBar{background:#061522;border:1px solid #164967;border-radius:4px;}QProgressBar::chunk{background:#00d4ff;border-radius:3px;}")
+    root.addWidget(progress)
+
+    rows = []
+    rows_box = QVBoxLayout()
+    rows_box.setSpacing(5)
+    for tag, label, _speech in modules:
+        row = QFrame()
+        row.setFixedHeight(34)
+        row.setStyleSheet("QFrame{background:#04101a;border:1px solid #102d40;border-radius:4px;}")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(10, 3, 10, 3)
+        tag_label = QLabel(tag)
+        tag_label.setFixedWidth(120)
+        tag_label.setFont(QFont("Consolas", 9, QFont.Weight.Bold))
+        tag_label.setStyleSheet("color:#39748d;")
+        text_label = QLabel(label)
+        text_label.setFont(QFont("Consolas", 9))
+        text_label.setStyleSheet("color:#6da0b4;")
+        status_label = QLabel("AGUARDANDO")
+        status_label.setFont(QFont("Consolas", 8, QFont.Weight.Bold))
+        status_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        status_label.setStyleSheet("color:#365061;")
+        row_layout.addWidget(tag_label)
+        row_layout.addWidget(text_label, 1)
+        row_layout.addWidget(status_label)
+        rows.append((row, tag_label, text_label, status_label))
+        rows_box.addWidget(row)
+    root.addLayout(rows_box)
+
+    telemetry = QLabel("NEURAL BUS  //  00:00:00  //  SYNAPSE LINK STANDBY")
+    telemetry.setFont(QFont("Consolas", 8))
+    telemetry.setStyleSheet("color:#35728a; padding-top:6px;")
+    root.addWidget(telemetry)
+
+    available = QApplication.primaryScreen().availableGeometry()
+    screen.move(available.center() - screen.rect().center())
+    screen.show()
+    particle_bed = _ParticleBed()
+    particle_bed.start()
+    _BOOT_SCREEN_VISIBLE.set()
+    if not _env_enabled("MARK_XL_BOOT_VOICE", "1"):
+        _BOOT_VOICE_STARTED.set()
+
+    loop = QEventLoop()
+    index = 0
+    started_at = time.time()
+
+    def update_telemetry() -> None:
+        elapsed = int(time.time() - started_at)
+        telemetry.setText(f"NEURAL BUS  //  00:00:{elapsed:02d}  //  SYNAPSE LINK ACTIVE")
+
+    pulse = QTimer(screen)
+    pulse.timeout.connect(update_telemetry)
+    pulse.start(250)
+
+    def begin_next_module() -> None:
+        nonlocal index
+        tag, label, speech = modules[index]
+        active = rows[index]
+        active[0].setStyleSheet("QFrame{background:#071c2a;border:1px solid #00d4ff;border-radius:4px;}")
+        active[1].setStyleSheet("color:#00d4ff;")
+        active[2].setStyleSheet("color:#d8f8ff;")
+        active[3].setText("CARREGANDO")
+        active[3].setStyleSheet("color:#ffb000;")
+        state.setText(f"CARREGANDO // {label}")
+        progress.setValue(index)
+        index += 1
+        QTimer.singleShot(1800, advance)
+
+    def advance() -> None:
+        # The first module starts immediately. Later modules get a visible pause
+        # after the prior one is confirmed online and its pulse has played.
+        if index == 0:
+            begin_next_module()
+            return
+
+        previous = rows[index - 1]
+        previous[0].setStyleSheet("QFrame{background:#02170f;border:1px solid #0d6d48;border-radius:4px;}")
+        previous[1].setStyleSheet("color:#00ff88;")
+        previous[2].setStyleSheet("color:#b7f9dd;")
+        previous[3].setText("ONLINE")
+        previous[3].setStyleSheet("color:#00ff88;")
+
+        if index >= len(modules):
+            state.setText("NÚCLEO OPERACIONAL ONLINE")
+            state.setStyleSheet("color:#00ff88; padding:8px 10px; border:1px solid #0d6d48; background:#02170f;")
+            progress.setValue(len(modules))
+            particle_bed.stop()
+            _play_boot_sound("ready")
+            final_wait_started = time.monotonic()
+
+            def finish_after_narration() -> None:
+                voice_expected = _env_enabled("MARK_XL_BOOT_VOICE", "1")
+                timed_out = time.monotonic() - final_wait_started >= 22.0
+                if not voice_expected or _BOOT_NARRATION_FINISHED.is_set() or timed_out:
+                    # Keep the green ONLINE screen visible briefly before the main UI opens.
+                    QTimer.singleShot(850, finish)
+                    return
+                QTimer.singleShot(100, finish_after_narration)
+
+            finish_after_narration()
+            return
+
+        _play_boot_sound("pulse")
+        QTimer.singleShot(300, begin_next_module)
+    def finish() -> None:
+        pulse.stop()
+        particle_bed.stop()
+        screen.close()
+        loop.quit()
+
+    def wait_for_native_voice() -> None:
+        if _BOOT_VOICE_STARTED.is_set():
+            advance()
+            return
+        QTimer.singleShot(80, wait_for_native_voice)
+
+    QTimer.singleShot(80, wait_for_native_voice)
+    loop.exec()
+    return True
 def _progress_bar(pct: float, width: int = 40, char: str = "█", empty: str = "░", color: str = "") -> str:
     filled = int(pct * width)
     bar = color + char * filled + DIM + empty * (width - filled) + RES
@@ -370,6 +661,9 @@ def run_startup_animation(
         One of 'magenta', 'cyan', 'green', 'red' — maps to pink/neon preference.
     """
     if silent:
+        return
+    pyautogui_ready = _activate_pyautogui()
+    if _env_enabled("MARK_XL_BOOT_GUI", "1") and _run_futuristic_loading_screen(pyautogui_ready):
         return
     if detailed is None:
         detailed = _env_enabled("MARK_XL_BOOT_DETAIL", "0")

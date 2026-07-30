@@ -25,6 +25,7 @@ ALLOWED_TOOLS = {
     "jarvis_lab",
     "iphone_bridge",
     "iphone_shortcuts",
+    "jarvis_bridge_gateway",
     "social_control",
     "operation_memory",
     "automation",
@@ -229,6 +230,17 @@ DEFAULT_COMMANDS: dict[str, dict[str, Any]] = {
             {"tool": "iphone_shortcuts", "parameters": {"action": "start", "silent": True}},
         ],
     },
+    "iniciar_jarvis_bridge": {
+        "description": "Iniciar imediatamente a JARVIS Bridge/PWA do iPhone.",
+        "aliases": [
+            "iniciar bridge", "inicia bridge", "liga bridge", "ligar bridge",
+            "abrir bridge", "abre bridge", "ativar bridge", "iniciar jarvis bridge",
+            "ligar jarvis bridge", "ponte jarvis", "ponte iphone"
+        ],
+        "steps": [
+            {"tool": "jarvis_bridge_gateway", "parameters": {"action": "start", "silent": True}},
+        ],
+    },
     "status_aprendizado_operacional": {
         "description": "Mostrar o que o Jarvis aprendeu sobre operacoes silenciosas.",
         "aliases": ["aprendizado operacional", "status operacional", "o que voce aprendeu das operacoes"],
@@ -419,6 +431,9 @@ def _call_tool(tool: str, parameters: dict, player=None, speak=None) -> str:
     if tool == "iphone_shortcuts":
         from actions.iphone_shortcuts import iphone_shortcuts
         return iphone_shortcuts(parameters=parameters, player=player, speak=speak) or "OK"
+    if tool == "jarvis_bridge_gateway":
+        from actions.jarvis_bridge_gateway import jarvis_bridge_gateway
+        return jarvis_bridge_gateway(parameters=parameters, player=player, speak=speak) or "OK"
     if tool == "social_control":
         from actions.social_control import social_control
         return social_control(parameters=parameters, player=player, speak=speak) or "OK"

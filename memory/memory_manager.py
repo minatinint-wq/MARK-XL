@@ -926,25 +926,24 @@ def generate_vault_index():
                     total_size += stat.st_size
                     newest_mtime = max(newest_mtime, stat.st_mtime)
                     sources[source] = sources.get(source, 0) + 1
-                    if len(files) < 60:
-                        try:
-                            rel_path = str(md_file.resolve().relative_to(vault.resolve()))
-                        except Exception:
-                            rel_path = md_file.name
-                        files.append({
-                            "name": md_file.stem,
-                            "title": first_line or md_file.stem,
-                            "size": stat.st_size,
-                            "path": str(md_file),
-                            "relative_path": rel_path,
-                            "folder": folder,
-                            "source": source,
-                            "vault": str(vault),
-                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                            "tags": _frontmatter_tags(fields),
-                            "type": fields.get("type", ""),
-                            "frontmatter_folder": fields.get("folder", ""),
-                        })
+                    try:
+                        rel_path = str(md_file.resolve().relative_to(vault.resolve()))
+                    except Exception:
+                        rel_path = md_file.name
+                    files.append({
+                        "name": md_file.stem,
+                        "title": first_line or md_file.stem,
+                        "size": stat.st_size,
+                        "path": str(md_file),
+                        "relative_path": rel_path,
+                        "folder": folder,
+                        "source": source,
+                        "vault": str(vault),
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "tags": _frontmatter_tags(fields),
+                        "type": fields.get("type", ""),
+                        "frontmatter_folder": fields.get("folder", ""),
+                    })
                 except Exception:
                     pass
         data["categories"][folder] = {
