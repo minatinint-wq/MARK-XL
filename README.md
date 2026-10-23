@@ -1,11 +1,11 @@
-# MARK-XL
+# MARK-XLIV
 
 [English](README.md) | [Português (Brasil)](docs/README.pt-BR.md)
 
 
 **Local-first personal AI command system for Windows.**
 
-MARK-XL is a Jarvis-style assistant built around voice, vision, local memory, desktop automation, Obsidian knowledge, media tools, maps, weather, games, and personal workflows. It is designed to run on the user's PC, remember context through a local brain, and execute practical commands instead of only chatting.
+MARK-XLIV is a Jarvis-style assistant built around voice, vision, local memory, desktop automation, Obsidian knowledge, media tools, maps, weather, games, and personal workflows. It is designed to run on the user's PC, remember context through a local brain, and execute practical commands instead of only chatting.
 
 > Status: active personal build. Some modules depend on local apps, API keys, device pairing, or Windows permissions.
 
@@ -15,7 +15,7 @@ MARK-XL is a Jarvis-style assistant built around voice, vision, local memory, de
 
 | Item | Value |
 |---|---|
-| Name | MARK-XL |
+| Name | MARK-XLIV |
 | Assistant persona | JARVIS / local operational AI |
 | Focus | PC automation, local memory, vision, voice, research, and personal workflows |
 | Primary platform | Windows |
@@ -54,10 +54,12 @@ MARK-XL is a Jarvis-style assistant built around voice, vision, local memory, de
 
 ### Local AI
 
-- Local Ollama controller with fast/deep presets.
-- Fast preset target: `llama3.2:1b`.
-- Deep preset target: `llama3.1:8b`.
-- Local brain answers using Obsidian context when configured.
+- Local Ollama controller with Normal, Fast, and Ultra on-demand presets.
+- Normal: `llama3.2:1b`, low effort, 2K context, thinking off.
+- Fast: `qwen3.5:4b`, medium effort, 4K context, thinking on.
+- Ultra: `gemma4:latest` (8B), high effort, 8K context, thinking on.
+- The main console includes three clickable model cards with live loading, thinking, response, and RAM-release states plus a compact thinking monitor.
+- Research results are summarized locally before returning to Gemini Live, and models unload after each request.
 - Gemini remains available for voice, vision, and fallback workflows.
 
 ### Desktop Automation
@@ -109,6 +111,9 @@ MARK-XL is a Jarvis-style assistant built around voice, vision, local memory, de
 |---|---|
 | `main.py` | Main JARVIS runtime and tool registration |
 | `ui.py` | Desktop interface/HUD |
+| `memory_brain_3d.html` | Local 3D knowledge visualization (build your own private index) |
+| `assets/reactor_lab/` | 3D armor, hand tracking and music-studio interface |
+| `assets/brain_3d/` | Offline brain renderer |
 | `actions/` | Tool modules for automation, vision, media, maps, weather, games, etc. |
 | `agent/` | Planner/executor support |
 | `core/prompt.txt` | Main routing/personality/tool-use prompt |
@@ -127,12 +132,19 @@ playwright install
 python main.py
 ```
 
+On Windows, `INICIAR_JARVIS_AUTOATUALIZAVEL.bat` uses the bundled Python,
+`.venv`, or the installed `py -3` launcher. Optional 3D and Fish voice
+dependencies are listed separately in `requirements-reactor-3d.txt` and
+`requirements-fish-voice.txt`. The 3D brain needs a locally built index; no
+personal notes or generated index are included in this repository.
+
 Local optional services:
 
 ```bash
 ollama serve
 ollama pull llama3.2:1b
-ollama pull llama3.1:8b
+ollama pull qwen3.5:4b
+ollama pull gemma4:latest
 ```
 
 ---

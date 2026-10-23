@@ -1,0 +1,35 @@
+{
+  "number": 44,
+  "roman": "XLIV",
+  "previous": 41,
+  "updated": "2026-09-09",
+  "stages": [
+    {
+      "number": 42,
+      "name": "Voz e criacao",
+      "features": [
+        "Fish Audio PT-BR prioritario; Gemini apenas apos falha do Fish",
+        "Studio ZeroGPU com duracao e arquivos de entrada"
+      ]
+    },
+    {
+      "number": 43,
+      "name": "Presenca 3D",
+      "features": [
+        "Armadura 3D, reator e mascara rigida com luzes azuis",
+        "Mouse e comandos de voz para rotacao e iluminacao"
+      ]
+    },
+    {
+      "number": 44,
+      "name": "Interacao e escuta",
+      "features": [
+        "Duas maos: zoom, mover, inclinar; punhos: girar",
+        "Supressao local de ruido mantendo volume e sensibilidade",
+        "Correcao de estabilidade COM e instancia unica",
+        "Sketchbook com gestos, modelos editaveis, interpretacao Gemini e geracao de imagem no Studio"
+      ]
+    }
+  ],
+  "history_note": "Organizacao retrospectiva das tres etapas desta atualizacao; nao representa tres releases publicados."
+}

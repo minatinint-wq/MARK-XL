@@ -1,0 +1,5 @@
+SpessaSynth lib 4.3.14 and core 4.3.22 (Apache-2.0). index.js import was changed to a local relative path.
+GeneralUser GS 2.0.3 by S. Christian Collins; original license and README included.
+https://github.com/spessasus/spessasynth_lib
+https://github.com/mrbumpy409/GeneralUser-GS
+stb-vorbis 0.0.6: original LICENSE included in stb-vorbis/.

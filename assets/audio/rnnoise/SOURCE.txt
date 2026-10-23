@@ -1,0 +1,4 @@
+RNNoise: https://github.com/xiph/rnnoise
+Windows binary from pyrnnoise 0.4.3: https://pypi.org/project/pyrnnoise/0.4.3/
+Wheel SHA256: 25e7d8d63f251238a439e6e3d54ad8cb147c9f2b7c7c56fc9d9a496f682d8b06
+DLL SHA256: e6223219f9feb604c89fd2249014705851ed8113e815cd243baa1d225cd4a8fd

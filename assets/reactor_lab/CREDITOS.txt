@@ -1,0 +1,7 @@
+Modelo-base: “Iron-man-with no rig”, de Darth_Ir0n (https://sketchfab.com/DarthIron).
+Origem: https://sketchfab.com/3d-models/iron-man-with-no-rig-3972bc5d690147b98251b4753c85d111
+Licença declarada nos metadados originais: CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/
+Cópia obtida do repositório fornecido pelo usuário: https://github.com/ishaan1013/jarvis
+Alterações em 09/09/2026: recorte em busto, proporções, olhos e mandíbula articulados, acabamento holográfico e integração do reator do usuário.
+Reator: ArcReactor.blend, recebido no arquivo 62-arcreactor.zip; autoria e licença não informadas no ZIP.
+Three.js: licença MIT, incluída em vendor/THREE-LICENSE.txt. MediaPipe: Apache 2.0, incluída em vendor/MEDIAPIPE-LICENSE.txt.

@@ -11,6 +11,8 @@ pyperclip
 pygetwindow
 opencv-python
 numpy
+openvino
+onnxruntime
 mss
 psutil
 comtypes

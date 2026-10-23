@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>JARVIS · Cérebro de memória</title>
+  <link rel="stylesheet" href="assets/brain_3d/brain.css">
+</head>
+<body>
+  <header class="header">
+    <a class="brand" href="memory_brain_3d.html" aria-label="JARVIS — início do cérebro de memória"><span class="brand-mark" aria-hidden="true">J</span><span>JARVIS<small>MARK XLIV / MEMÓRIA</small></span></a>
+    <div class="header-divider"></div><span class="header-title">Atlas neural</span>
+    <div id="brainActivity" class="brain-activity" role="status" aria-live="polite" hidden></div>
+    <div class="local-badge"><i></i> ÍNDICE LOCAL</div>
+    <button id="libraryToggle" class="icon-button mobile-button" aria-label="Mostrar biblioteca" aria-expanded="false">☰</button>
+  </header>
+  <main class="workspace">
+    <aside class="library" aria-label="Biblioteca de memórias">
+      <div class="library-head"><span class="eyebrow">SEU CONHECIMENTO</span><h1>Cérebro de<br>memória<span>.</span></h1><p>Cada ponto, uma nota.<br>Cada caminho, uma relação.</p></div>
+      <div class="total"><strong id="total">—</strong><span>notas no cérebro</span><span class="tiny-orbit" aria-hidden="true">✳</span></div>
+      <label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="filter" type="search" placeholder="Buscar uma memória…" aria-label="Buscar nota, pasta, tag ou grupo" autocomplete="off"><kbd>/</kbd></label>
+      <div class="list-heading"><span id="listTitle">GRUPOS DE MEMÓRIA</span><span id="groupCount">—</span></div>
+      <div id="groupList" class="group-list"></div>
+      <div class="library-foot"><span class="status-dot"></span><span id="updated">Lendo o índice…</span><button id="clearFilter" class="text-button" title="Mostrar todas as notas">Limpar</button></div>
+    </aside>
+    <section class="stage" aria-label="Cérebro interativo em três dimensões">
+      <div class="stage-heading"><span class="eyebrow">VISUALIZAÇÃO 3D</span><h2 id="viewTitle">Toda a memória</h2><p id="viewSubtitle">Dois hemisférios. Um sistema conectado.</p></div>
+      <div class="view-actions" role="group" aria-label="Orientação do cérebro">
+        <button id="home" class="icon-button" title="Centralizar · tecla 0" aria-label="Centralizar cérebro"><svg viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 12h8m-4-4v8"/></svg></button>
+        <button id="topView" class="icon-button" title="Vista superior" aria-label="Vista superior"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></svg></button>
+        <button id="rotate" class="icon-button" title="Giro automático" aria-label="Giro automático" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 13-3l2 3M4 16l2 3a8 8 0 0 0 13-3"/></svg></button>
+      </div>
+      <div id="scene" tabindex="0" aria-label="Arraste para girar o cérebro, use a roda para aproximar e clique em um ponto para selecionar uma nota"></div>
+      <div class="hemisphere hemisphere-left" aria-hidden="true"><span>H.E.</span><i></i></div>
+      <div class="hemisphere hemisphere-right" aria-hidden="true"><i></i><span>H.D.</span></div>
+      <div id="tooltip" class="tooltip" hidden></div>
+      <div id="loading" class="loading"><span class="loader-mark" aria-hidden="true">✳</span><h2>Organizando a memória</h2><p id="loadingText">Construindo o cérebro a partir das suas notas…</p><button id="retry" hidden>Recarregar</button></div>
+      <div class="stage-bottom">
+        <div class="render-controls"><label><input id="connections" type="checkbox" checked><span>Caminhos</span></label><span class="control-divider"></span><label><input id="animate" type="checkbox" checked><span>Fluxo vivo</span></label><span class="control-divider"></span><label class="intensity">Densidade<input id="density" type="range" min="0" max="100" value="78" aria-label="Intensidade visual dos caminhos"></label><span class="control-divider"></span><button id="brainPulse" class="pulse-button" type="button" title="Propagar um pulso pelo cérebro inteiro">Pulso <span aria-hidden="true">✦</span></button><button id="testSynapse" class="synapse-test" type="button" title="Disparar uma sinapse demonstrativa entre os hemisférios">Testar sinapse <span aria-hidden="true">↗</span></button></div>
+        <div class="stage-legend"><span><i class="legend-note"></i>Pontos = amostra local</span><span><i class="legend-line"></i>Ligações comuns</span><span><i class="legend-synapse"></i>Sinapses</span></div>
+      </div>
+    </section>
+    <aside class="inspector" aria-label="Nota selecionada e caminhos">
+      <div class="inspector-heading"><span class="eyebrow">INSPECIONAR</span><span class="tag">NOTA</span></div>
+      <div id="emptySelection" class="empty-selection"><svg class="node-icon" viewBox="0 0 120 96" aria-hidden="true"><path d="m60 46-35-22m35 22 34-25M60 46l34 28M60 46 24 75"/><circle cx="60" cy="46" r="17"/><circle cx="60" cy="46" r="5"/><circle cx="25" cy="24" r="4"/><circle cx="94" cy="21" r="4"/><circle cx="94" cy="74" r="4"/><circle cx="24" cy="75" r="4"/></svg><h3>Uma ideia puxa outra.</h3><p>Selecione um ponto no cérebro ou encontre uma nota na busca.</p></div>
+      <div id="selection" hidden><span id="noteGroup" class="note-group"></span><h3 id="noteTitle"></h3><dl><dt>PASTA</dt><dd id="noteFolder"></dd><dt>ATUALIZADA EM</dt><dd id="noteDate"></dd></dl><div id="noteTags" class="note-tags"></div><div class="note-actions"><button id="focusNote">Focar nota</button><a id="openNote" target="_blank" rel="noopener">Abrir ↗</a></div><button id="copyPath" class="text-button copy-button">Copiar caminho</button><div class="related-heading">NOTAS CONECTADAS <span id="relatedCount"></span></div><div id="relatedList"></div></div>
+      <div class="network-summary"><div><span class="eyebrow">REDE VISÍVEL</span><span id="visibleNotes">—</span></div><div class="network-numbers"><strong id="edgeCount">—</strong><span>caminhos entre notas</span></div><p>Conexões por pasta, tag ou grupo em comum. Selecione uma nota para explorar os caminhos.</p></div>
+      <details class="route" open><summary>Traçar um caminho <span>↗</span></summary><p>Explore uma sequência de relações entre dois grupos.</p><label for="routeFrom">ORIGEM</label><select id="routeFrom"></select><label for="routeTo">DESTINO</label><select id="routeTo"></select><button id="routeBtn" class="primary-button">Explorar conexão <span>→</span></button><p id="routeStatus" role="status"></p></details>
+    </aside>
+  </main>
+  <footer class="footer"><span id="caption" role="status">Preparando o atlas…</span><span class="footer-hint">Arraste para girar <b>·</b> Role para aproximar <b>·</b> Clique para explorar</span><span id="performance" class="performance">LOCAL / 3D</span></footer>
+  <script>window.addEventListener('error',function(e){if(e.target&&e.target.tagName==='SCRIPT'){document.getElementById('loadingText').textContent='Não foi possível carregar os arquivos locais. Mantenha as pastas assets e memory ao lado deste HTML.';document.getElementById('retry').hidden=false;}},true);document.getElementById('retry').onclick=function(){location.reload();};</script>
+  <script src="memory/neural_map_data.js"></script>
+  <script src="assets/brain_3d/three-local.js"></script>
+  <script src="assets/brain_3d/brain-model.js"></script>
+  <script src="assets/brain_3d/brain.js"></script>
+</body>
+</html>

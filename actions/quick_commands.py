@@ -12,6 +12,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 COMMANDS_PATH = BASE_DIR / "memory" / "quick_commands.json"
 
 ALLOWED_TOOLS = {
+    "video_generation",
     "open_app",
     "browser_control",
     "computer_control",
@@ -37,6 +38,22 @@ ALLOWED_TOOLS = {
 }
 
 DEFAULT_COMMANDS: dict[str, dict[str, Any]] = {
+    'ligar_tomada_deposito': {'description': 'ligar tomada do depósito', 'aliases': ['ligar tomada do depósito', 'liga tomada do depósito', 'acender luz do depósito', 'ligar tomada do deposito'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'on', 'device': 'smart plug'}}]},
+    'desligar_tomada_deposito': {'description': 'desligar tomada do depósito', 'aliases': ['desligar tomada do depósito', 'desliga tomada do depósito', 'apagar luz do depósito', 'desligar tomada do deposito'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'off', 'device': 'smart plug'}}]},
+    'status_tomada_deposito': {'description': 'status da tomada do depósito', 'aliases': ['status da tomada do depósito', 'status da tomada do deposito'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'status', 'device': 'smart plug'}}]},
+    'ligar_cafeteira_deposito': {'description': 'ligar Cafeteira switch_1 do depósito', 'aliases': ['ligar cafeteira do depósito', 'liga cafeteira do depósito', 'ligar cafeteira switch 1', 'ligar cafeteira sweet'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'on', 'device': 'Cafeteira switch_1'}}]},
+    'desligar_cafeteira_deposito': {'description': 'desligar Cafeteira switch_1 do depósito', 'aliases': ['desligar cafeteira do depósito', 'desliga cafeteira do depósito', 'desligar cafeteira switch 1', 'desligar cafeteira sweet'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'off', 'device': 'Cafeteira switch_1'}}]},
+    'status_cafeteira_deposito': {'description': 'status da Cafeteira switch_1 do depósito', 'aliases': ['status cafeteira do depósito', 'status cafeteira switch 1', 'status cafeteira sweet'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'status', 'device': 'Cafeteira switch_1'}}]},
+    'ligar_cafeteira_quarto': {'description': 'ligar Cafeteira do quarto', 'aliases': ['ligar cafeteira do quarto', 'liga cafeteira do quarto'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'on', 'device': 'Cafeteira'}}]},
+    'desligar_cafeteira_quarto': {'description': 'desligar Cafeteira do quarto', 'aliases': ['desligar cafeteira do quarto', 'desliga cafeteira do quarto'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'off', 'device': 'Cafeteira'}}]},
+    'status_cafeteira_quarto': {'description': 'status da Cafeteira do quarto', 'aliases': ['status cafeteira do quarto'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'status', 'device': 'Cafeteira'}}]},
+    'ligar_luz_grow': {'description': 'ligar a luz do grow', 'aliases': ['ligar luz do grow', 'liga a luz do grow', 'ligue a luz do grow', 'acender luz do grow', 'acenda a luz do grow', 'ativar luz do grow', 'liga grow control'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'on', 'device': 'grow control'}}]},
+    'desligar_luz_grow': {'description': 'desligar a luz do grow', 'aliases': ['desligar luz do grow', 'desliga a luz do grow', 'desligue a luz do grow', 'apagar luz do grow', 'apaga a luz do grow', 'desativar luz do grow', 'desliga grow control'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'off', 'device': 'grow control'}}]},
+    'status_luz_grow': {'description': 'consultar a luz do grow', 'aliases': ['status luz do grow', 'estado da luz do grow', 'a luz do grow esta ligada', 'como esta a luz do grow', 'status grow control'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'status', 'device': 'grow control'}}]},
+    'ligar_sistema_rega': {'description': 'ligar o sistema de rega', 'aliases': ['ligar sistema de rega', 'liga o sistema de rega', 'ligue o sistema de rega', 'ativar sistema de rega', 'ativa a rega', 'ative a rega', 'ligar rega'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'on', 'device': 'rega'}}]},
+    'desligar_sistema_rega': {'description': 'desligar o sistema de rega', 'aliases': ['desligar sistema de rega', 'desliga o sistema de rega', 'desligue o sistema de rega', 'desativar sistema de rega', 'desativa a rega', 'desative a rega', 'desligar rega'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'off', 'device': 'rega'}}]},
+    'status_sistema_rega': {'description': 'consultar o sistema de rega', 'aliases': ['status sistema de rega', 'estado do sistema de rega', 'a rega esta ligada', 'como esta a rega', 'status rega'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'status', 'device': 'rega'}}]},
+    'configurar_google_home': {'description': 'configurar google home', 'aliases': ['configurar google home', 'abrir google home'], 'steps': [{'tool': 'smart_home', 'parameters': {'domain': 'google_home', 'action': 'setup', 'device': 'grow control'}}]},
     "status_modelo_local": {
         "description": "Mostrar status do modelo local real via Ollama.",
         "aliases": ["status modelo local", "status ia local", "quantos parametros local", "modelo local status"],
@@ -58,30 +75,35 @@ DEFAULT_COMMANDS: dict[str, dict[str, Any]] = {
             {"tool": "local_llm", "parameters": {"action": "list"}},
         ],
     },
-    "modelo_local_rapido": {
-        "description": "Ativar modelo local rapido 1B para respostas curtas/offline.",
-        "aliases": ["modelo local rapido", "modo local rapido", "ia local rapida", "usar 1b local"],
+    "modelo_local_normal": {
+        "description": "Ativar modo Normal: modelo local 1B com esforco baixo.",
+        "aliases": ["modelo local normal", "modo local normal", "ia local normal", "usar 1b local"],
         "steps": [
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "normal"}},
+            {"tool": "local_llm", "parameters": {"action": "normal"}},
+        ],
+    },
+    "modelo_local_rapido": {
+        "description": "Ativar modo Rapido: Qwen 4B com esforco medio.",
+        "aliases": ["modelo local rapido", "modo local rapido", "ia local rapida", "usar 4b local"],
+        "steps": [
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "rapido"}},
             {"tool": "local_llm", "parameters": {"action": "fast"}},
         ],
     },
-    "modelo_local_profundo": {
-        "description": "Ativar modelo local profundo 8B para analises longas.",
-        "aliases": ["modelo local profundo", "modo local profundo", "usar 8b profundo", "ia local 8b profunda"],
+    "modelo_local_ultra": {
+        "description": "Ativar modo Ultra: Gemma 4 8B com esforco alto.",
+        "aliases": ["modelo local ultra", "modo local ultra", "modelo local profundo", "usar 8b profundo", "ia local ultra"],
         "steps": [
-            {"tool": "local_llm", "parameters": {"action": "deep"}},
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "ultra"}},
+            {"tool": "local_llm", "parameters": {"action": "ultra"}},
         ],
-    },    "fixar_modelo_local_8b": {
-        "description": "Fixar llama3.1:8b como modelo local real do Jarvis.",
-        "aliases": ["fixar modelo local 8b", "jarvis 8b local", "modelo local 8b", "usar llama 8b"],
-        "steps": [
-            {"tool": "local_llm", "parameters": {"action": "setup", "model": "llama3.1:8b", "parameters_b": 8}},
-        ],
-    },    "fixar_ia_local": {
+    },
+    "fixar_ia_local": {
         "description": "Fixar Jarvis como IA local-first com cerebro Obsidian e parametros operacionais elevados.",
         "aliases": ["fixar ia local", "jarvis ia local", "full neural fixar", "fixa o jarvis local"],
         "steps": [
-            {"tool": "brain_mode", "parameters": {"action": "pin", "module": "pro"}},
+            {"tool": "brain_mode", "parameters": {"action": "pin", "module": "normal"}},
         ],
     },
     "modulos_cerebro": {
@@ -91,37 +113,23 @@ DEFAULT_COMMANDS: dict[str, dict[str, Any]] = {
             {"tool": "brain_mode", "parameters": {"action": "modulos"}},
         ],
     },
-    "modulo_cerebro_leve": {
-        "description": "Ativar modulo leve do cerebro para respostas rapidas.",
-        "aliases": ["modulo leve", "cerebro leve", "parametros leve", "modo rapido cerebro"],
+    "modulo_cerebro_normal": {
+        "description": "Ativar modo Normal do cerebro com modelo 1B e esforco baixo.",
+        "aliases": ["modulo normal", "cerebro normal", "modo normal cerebro", "modulo leve"],
         "steps": [
-            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "leve"}},
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "normal"}},
         ],
     },
-    "modulo_cerebro_plus": {
-        "description": "Ativar modulo plus equilibrado do cerebro.",
-        "aliases": ["modulo plus", "cerebro plus", "parametros plus", "modo normal cerebro"],
+    "modulo_cerebro_rapido": {
+        "description": "Ativar modo Rapido do cerebro com Qwen 4B e esforco medio.",
+        "aliases": ["modulo rapido", "cerebro rapido", "modo rapido cerebro", "modulo plus", "modulo pro"],
         "steps": [
-            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "plus"}},
-        ],
-    },
-    "modulo_cerebro_pro": {
-        "description": "Ativar modulo pro do cerebro com parametros elevados e ainda rapido.",
-        "aliases": ["modulo pro", "cerebro pro", "aumentar parametros", "aumenta os parametros", "modo turbo cerebro"],
-        "steps": [
-            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "pro"}},
-        ],
-    },
-    "modulo_cerebro_max": {
-        "description": "Ativar modulo max para pesquisas pesadas no cerebro.",
-        "aliases": ["modulo max", "cerebro max", "parametros max", "modo max cerebro"],
-        "steps": [
-            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "max"}},
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "rapido"}},
         ],
     },
     "modulo_cerebro_ultra": {
-        "description": "Ativar modulo ultra para analises longas e leitura profunda.",
-        "aliases": ["modulo ultra", "cerebro ultra", "parametros ultra", "modo ultra cerebro", "aumenta tudo"],
+        "description": "Ativar modo Ultra do cerebro com Gemma 4 8B e esforco alto.",
+        "aliases": ["modulo ultra", "cerebro ultra", "parametros ultra", "modo ultra cerebro", "aumenta tudo", "modulo max"],
         "steps": [
             {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "ultra"}},
         ],
@@ -391,6 +399,9 @@ def _call_tool(tool: str, parameters: dict, player=None, speak=None) -> str:
     if tool not in ALLOWED_TOOLS:
         return f"Ferramenta nao permitida em quick_commands: {tool}"
 
+    if tool == "video_generation":
+        from actions.video_generation import video_generation
+        return video_generation(parameters=parameters, player=player, speak=speak)
     if tool == "open_app":
         from actions.open_app import open_app
         return open_app(parameters=parameters, player=player) or "OK"
@@ -633,9 +644,3 @@ def quick_command(parameters: dict = None, player=None, speak=None, **_) -> str:
         outputs.append(f"{tool}: {_call_tool(tool, step_params, player=player, speak=speak)}")
 
     return f"Comando executado: {key}\n" + "\n".join(outputs)
-
-
-
-
-
-

@@ -100,7 +100,7 @@ def _get_spotipy() -> Optional[object]:
         try:
             token = auth.get_cached_token()
             if token:
-                return spotipy.Spotify(auth_manager=auth)
+                return spotipy.Spotify(auth_manager=auth, requests_timeout=8, retries=0, status_retries=0)
         except Exception:
             pass
         return None
@@ -214,74 +214,28 @@ def _spotify_norm(text: str) -> str:
     return "".join(ch for ch in str(text or "").lower() if ch.isalnum() or ch.isspace()).strip()
 
 
-def spotify_devices_text(sp: object) -> str:
-    devices = sp.devices().get("devices", [])
-    if not devices:
-        return (
-            "Nenhum dispositivo Spotify encontrado. Abra o Spotify no PC/celular "
-            "e aguarde ele aparecer em Spotify Connect."
-        )
-    lines = ["📱 Dispositivos Spotify disponíveis:"]
-    for d in devices:
-        active = " 🔊 ATIVO" if d.get("is_active") else ""
-        dtype = d.get("type") or "device"
-        volume = d.get("volume_percent")
-        vol = f" · {volume}%" if volume is not None else ""
-        lines.append(f"  • {d.get('name', '?')} ({dtype}){vol}{active}")
-    return "\n".join(lines)
+def spotify_devices_text(sp):
+    from actions.spotify_connect import devices_text
+    return devices_text(sp)
 
 
-def spotify_pick_device(sp: object, device: str = "") -> tuple[dict | None, list[dict], str | None]:
-    devices = sp.devices().get("devices", [])
-    if not devices:
-        return None, [], (
-            "Nenhum dispositivo Spotify encontrado. Abra o Spotify no PC/celular "
-            "e toque algo uma vez, ou deixe o app aberto por alguns segundos."
-        )
 
-    if device:
-        needle = _spotify_norm(device)
-        exact = [d for d in devices if _spotify_norm(d.get("name", "")) == needle]
-        if exact:
-            return exact[0], devices, None
-        partial = [d for d in devices if needle in _spotify_norm(d.get("name", ""))]
-        if partial:
-            return partial[0], devices, None
-        return None, devices, f"Dispositivo '{device}' não encontrado.\n{spotify_devices_text(sp)}"
-
-    active = [d for d in devices if d.get("is_active")]
-    if active:
-        return active[0], devices, None
-    return devices[0], devices, None
+def spotify_pick_device(sp, device=''):
+    from actions.spotify_connect import pick_device
+    return pick_device(sp, device)
 
 
-def spotify_start_on_device(sp: object, device: str = "", **play_kwargs) -> tuple[str, dict | None]:
-    target, _, error = spotify_pick_device(sp, device)
-    if error:
-        return error, None
-    if not target or not target.get("id"):
-        return "Dispositivo Spotify sem ID. Abra o Spotify e tente novamente.", None
 
-    device_id = target["id"]
-    try:
-        sp.start_playback(device_id=device_id, **play_kwargs)
-    except Exception:
-        # Alguns clients só aceitam comando após transferir o player primeiro.
-        sp.transfer_playback(device_id, force_play=True)
-        time.sleep(0.35)
-        if play_kwargs:
-            sp.start_playback(device_id=device_id, **play_kwargs)
-    return f"▶ Tocando agora em {target.get('name', 'Spotify')}.", target
+def spotify_start_on_device(sp, device='', **play_kwargs):
+    from actions.spotify_connect import start_on_device
+    return start_on_device(sp, device, **play_kwargs)
 
 
-def spotify_transfer_to_device(sp: object, device: str, force_play: bool = True) -> str:
-    target, _, error = spotify_pick_device(sp, device)
-    if error:
-        return error
-    if not target or not target.get("id"):
-        return "Dispositivo Spotify sem ID. Abra o Spotify e tente novamente."
-    sp.transfer_playback(target["id"], force_play=force_play)
-    return f"▶ Spotify transferido para {target.get('name', device)}."
+
+def spotify_transfer_to_device(sp, device, force_play=True):
+    from actions.spotify_connect import transfer_to_device
+    return transfer_to_device(sp, device, force_play=force_play)
+
 
 
 def smart_home(
@@ -308,6 +262,10 @@ def smart_home(
 
     if player:
         player.write_log(f"[SmartHome] {domain}/{action} {device or query}")
+
+    if domain == "google_home":
+        from actions.browser_control import browser_control
+        return browser_control(parameters={"action": "google_home", "command": action, "device": device, "browser": "chrome"}, player=player)
 
     # ── SPOTIFY ──────────────────────────────────────────────────────
     if domain == "spotify":
@@ -353,6 +311,13 @@ def smart_home(
 
         # ── Web API ──
         sp = _get_spotipy()
+        from actions.spotify_connect import handles, control, device_request
+        if handles(action):
+            if sp is not None:
+                return control(sp, action, params)
+            if device_request(params):
+                return "Reconecte o Spotify do Jarvis para controlar esse dispositivo pela API."
+            return _spotify_desktop(action, params)
 
         if action in ("play/pause", "toggle"):
             if sp is not None:

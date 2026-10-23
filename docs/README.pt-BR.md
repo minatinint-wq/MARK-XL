@@ -51,10 +51,12 @@ O MARK-XL é um assistente estilo Jarvis feito para voz, visão, memória local,
 
 ### IA Local
 
-- Controlador local via Ollama com presets rápido/profundo.
-- Preset rápido alvo: `llama3.2:1b`.
-- Preset profundo alvo: `llama3.1:8b`.
-- Respostas locais com contexto do Obsidian quando configurado.
+- Controlador local via Ollama com presets Normal, Rápido e Ultra carregados sob demanda.
+- Normal: `llama3.2:1b`, esforço baixo, contexto 2K e thinking desligado.
+- Rápido: `qwen3.5:4b`, esforço médio, contexto 4K e thinking ligado.
+- Ultra: `gemma4:latest` (8B), esforço alto, contexto 8K e thinking ligado.
+- A tela principal tem três cards clicáveis com estados ao vivo de carregamento, thinking, resposta e liberação da RAM, além de um monitor compacto do raciocínio.
+- A pesquisa é resumida localmente antes de voltar ao Gemini Live, e o modelo sai da RAM ao terminar.
 - Gemini continua como camada de voz, visão e fallback.
 
 ### Automação do Desktop
@@ -129,7 +131,8 @@ Serviços locais opcionais:
 ```bash
 ollama serve
 ollama pull llama3.2:1b
-ollama pull llama3.1:8b
+ollama pull qwen3.5:4b
+ollama pull gemma4:latest
 ```
 
 ---

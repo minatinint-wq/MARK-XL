@@ -128,79 +128,18 @@ def _get_spotify_process() -> Optional[str]:
     return None
 
 
-def _spotify_connect_control(action: str, params: dict) -> Optional[str]:
-    """Use Spotify Web API first when the account is already authorized."""
-    try:
-        from actions.smart_home import (
-            _get_spotipy,
-            spotify_devices_text,
-            spotify_start_on_device,
-            spotify_status_text,
-            spotify_transfer_to_device,
-        )
-    except Exception:
+def _spotify_connect_control(action, params):
+    from actions.spotify_connect import control, handles, device_request
+    if not handles(action):
         return None
-
+    from actions.smart_home import _get_spotipy
     sp = _get_spotipy()
     if sp is None:
+        if device_request(params):
+            return "Reconecte o Spotify do Jarvis para controlar esse dispositivo pela API."
         return None
+    return control(sp, action, params)
 
-    query = params.get("query", params.get("text", ""))
-    device = params.get("device") or params.get("device_name") or params.get("target") or ""
-
-    try:
-        if action in ("search", "buscar", "find"):
-            if not query:
-                return "O que você quer ouvir no Spotify?"
-            res = sp.search(q=query, limit=5, type="track")
-            tracks = res.get("tracks", {}).get("items", [])
-            if not tracks:
-                return f"Nada encontrado para '{query}'."
-
-            uris = [t["uri"] for t in tracks[:3]]
-            msg, target = spotify_start_on_device(sp, device, uris=uris)
-            if target is None:
-                return msg
-
-            first = tracks[0]
-            artists = ", ".join(a["name"] for a in first.get("artists", []))
-            where = f" em {target.get('name')}" if target else ""
-            return f"Tocando: {first['name']} — {artists}{where}"
-
-        if action in ("play", "toggle", "tocar"):
-            if action == "toggle":
-                cur = sp.current_playback()
-                if cur and cur.get("is_playing"):
-                    sp.pause_playback()
-                    return "Pausado."
-            msg, _ = spotify_start_on_device(sp, device)
-            return msg
-
-        if action in ("pause", "pausar"):
-            sp.pause_playback()
-            return "Pausado."
-
-        if action in ("next", "skip", "proxima", "próxima"):
-            sp.next_track()
-            time.sleep(0.3)
-            return f"Proxima musica. {spotify_status_text(sp)}"
-
-        if action in ("previous", "back", "anterior"):
-            sp.previous_track()
-            time.sleep(0.3)
-            return f"Musica anterior. {spotify_status_text(sp)}"
-
-        if action in ("current", "now playing", "what's playing"):
-            return spotify_status_text(sp)
-
-        if action in ("devices", "connect", "dispositivos", " Devices"):
-            if device:
-                return spotify_transfer_to_device(sp, device, force_play=True)
-            return spotify_devices_text(sp)
-    except Exception as e:
-        return f"Spotify Connect error: {str(e)[:120]}"
-
-    return None
 
 
 def spotify_control(
@@ -231,6 +170,12 @@ def spotify_control(
     api_result = _spotify_connect_control(action, params)
     if api_result:
         return api_result
+
+    from actions.spotify_connect import action_name, device_request
+    if device_request(params):
+        return "Esse comando local não controla outro aparelho. Use os comandos Spotify Connect."
+    if action_name(action) == 'volume':
+        return "Para definir um volume exato, reconecte a API Spotify. Sem ela, use volume_up ou volume_down no PC."
 
     # First, ensure Spotify is open
     spotify_path = _get_spotify_process()

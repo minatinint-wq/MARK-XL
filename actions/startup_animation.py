@@ -153,7 +153,7 @@ class _ParticleBed:
                     stream.write(np.clip(frame * volume, -0.42, 0.42).astype(np.float32).reshape(-1, 1))
         except Exception:
             return
-def _run_futuristic_loading_screen(pyautogui_ready: bool) -> bool:
+def _run_futuristic_loading_screen_legacy(pyautogui_ready: bool) -> bool:
     """Show the visual boot sequence and announce each module in order."""
     try:
         from PyQt6.QtCore import QEventLoop, Qt, QTimer
@@ -177,6 +177,7 @@ def _run_futuristic_loading_screen(pyautogui_ready: bool) -> bool:
     _BOOT_VOICE_STARTED.clear()
     app = QApplication.instance() or QApplication(sys.argv)
     screen = QWidget()
+    screen.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
     screen.setWindowTitle("JARVIS // NEURAL BOOT")
     screen.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
     screen.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
@@ -319,15 +320,159 @@ def _run_futuristic_loading_screen(pyautogui_ready: bool) -> bool:
         screen.close()
         loop.quit()
 
+    voice_wait_started = time.monotonic()
+
     def wait_for_native_voice() -> None:
         if _BOOT_VOICE_STARTED.is_set():
             advance()
+            return
+        if time.monotonic() - voice_wait_started >= 12.0:
+            # A delayed/missing voice handshake must never hide the main UI forever.
+            print("[JARVIS BOOT] Voz ainda indisponível; abrindo a interface.", flush=True)
+            finish()
             return
         QTimer.singleShot(80, wait_for_native_voice)
 
     QTimer.singleShot(80, wait_for_native_voice)
     loop.exec()
     return True
+
+
+def _run_futuristic_loading_screen(pyautogui_ready: bool) -> bool:
+    """Show a short HUD core loader with no spoken module roll-call."""
+    try:
+        import math
+        from PyQt6.QtCore import QEventLoop, QPointF, QRectF, Qt, QTimer
+        from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen, QRadialGradient
+        from PyQt6.QtWidgets import QApplication, QWidget
+    except Exception:
+        return False
+
+    class _TechBootCanvas(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.progress = 0.0
+            self.angle = 0.0
+            self.setWindowTitle("JARVIS // CORE LINK")
+            self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+            self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
+            self.setFixedSize(680, 440)
+
+        def paintEvent(self, _event):
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.fillRect(self.rect(), QColor(0, 4, 9))
+            w, h = self.width(), self.height()
+            cx, cy = w * 0.5, h * 0.47
+            radius = min(w, h) * 0.31
+
+            # Blueprint grid.
+            p.setPen(QPen(QColor(20, 92, 128, 34), 1))
+            for x in range(20, w, 28):
+                p.drawLine(x, 0, x, h)
+            for y in range(20, h, 28):
+                p.drawLine(0, y, w, y)
+
+            glow = QRadialGradient(QPointF(cx, cy), radius * 1.35)
+            glow.setColorAt(0.0, QColor(80, 220, 255, 105))
+            glow.setColorAt(0.42, QColor(20, 150, 235, 38))
+            glow.setColorAt(1.0, QColor(0, 30, 65, 0))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(glow)
+            p.drawEllipse(QPointF(cx, cy), radius * 1.35, radius * 1.35)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+
+            specs = ((1.02, 48, 4.4, 1.0), (0.86, 32, 7.1, -1.4), (0.69, 24, 9.8, 2.1), (0.50, 16, 15.0, -2.8))
+            for ring, (scale, count, span, speed) in enumerate(specs):
+                rr = radius * scale
+                rect = QRectF(cx - rr, cy - rr, rr * 2, rr * 2)
+                for index in range(count):
+                    if (index + ring) % 8 == 0:
+                        continue
+                    alpha = 80 + ring * 25 + int(70 * max(0.0, math.sin(self.angle * 0.04 + index)))
+                    p.setPen(QPen(QColor(38, 190 if ring < 2 else 225, 255, alpha), 1.0 + ring * 0.3))
+                    start = self.angle * speed + index * 360.0 / count
+                    p.drawArc(rect, int(start * 16), int(span * 16))
+
+            # Radial progress sectors light up clockwise.
+            lit = int(40 * self.progress)
+            for index in range(40):
+                angle = math.radians(index * 9 - 90)
+                inner = radius * 0.55
+                outer = radius * (0.63 if index % 5 else 0.68)
+                color = QColor(195, 246, 255, 235) if index < lit else QColor(22, 93, 130, 70)
+                p.setPen(QPen(color, 2.2 if index < lit else 1.0))
+                p.drawLine(
+                    QPointF(cx + math.cos(angle) * inner, cy + math.sin(angle) * inner),
+                    QPointF(cx + math.cos(angle) * outer, cy + math.sin(angle) * outer),
+                )
+
+            core_r = radius * (0.16 + math.sin(self.angle * 0.08) * 0.012)
+            core = QRadialGradient(QPointF(cx, cy), core_r)
+            core.setColorAt(0.0, QColor(245, 255, 255, 255))
+            core.setColorAt(0.25, QColor(105, 225, 255, 245))
+            core.setColorAt(1.0, QColor(15, 120, 235, 0))
+            p.setPen(QPen(QColor(176, 240, 255, 220), 1.0))
+            p.setBrush(core)
+            p.drawEllipse(QPointF(cx, cy), core_r, core_r)
+
+            p.setPen(QColor(205, 247, 255))
+            p.setFont(QFont("Consolas", 10, QFont.Weight.Bold))
+            p.drawText(QRectF(0, 22, w, 22), Qt.AlignmentFlag.AlignCenter, "J.A.R.V.I.S  //  CORE LINK")
+            p.setFont(QFont("Consolas", 25, QFont.Weight.Bold))
+            p.drawText(QRectF(0, cy - 21, w, 42), Qt.AlignmentFlag.AlignCenter, f"{int(self.progress * 100):02d}%")
+
+            bar = QRectF(90, h - 50, w - 180, 3)
+            p.fillRect(bar, QColor(13, 55, 78))
+            fill = QRectF(bar.left(), bar.top(), bar.width() * self.progress, bar.height())
+            gradient = QLinearGradient(fill.topLeft(), fill.topRight())
+            gradient.setColorAt(0.0, QColor(20, 130, 255))
+            gradient.setColorAt(1.0, QColor(180, 245, 255))
+            p.fillRect(fill, gradient)
+            p.setFont(QFont("Consolas", 8))
+            p.setPen(QColor(61, 145, 180))
+            p.drawText(QRectF(90, h - 35, w - 180, 18), Qt.AlignmentFlag.AlignCenter, "SYNCHRONIZING NEURAL INTERFACE")
+            p.end()
+
+    _BOOT_SCREEN_VISIBLE.clear()
+    _BOOT_VOICE_STARTED.clear()
+    _BOOT_NARRATION_FINISHED.set()
+    app = QApplication.instance() or QApplication(sys.argv)
+    screen = _TechBootCanvas()
+    available = QApplication.primaryScreen().availableGeometry()
+    screen.move(available.center() - screen.rect().center())
+    screen.show()
+    _BOOT_SCREEN_VISIBLE.set()
+    _play_boot_sound("wake")
+
+    loop = QEventLoop()
+    started = time.perf_counter()
+    duration = max(0.8, float(os.environ.get("MARK_XL_BOOT_DURATION", "2.2")))
+    timer = QTimer(screen)
+
+    def advance():
+        elapsed = time.perf_counter() - started
+        raw = min(1.0, elapsed / duration)
+        # Smooth acceleration/deceleration still reaches a truthful 100%.
+        screen.progress = raw * raw * (3.0 - 2.0 * raw)
+        screen.angle = elapsed * 78.0
+        screen.update()
+        if raw >= 1.0:
+            timer.stop()
+            _play_boot_sound("ready")
+            QTimer.singleShot(180, finish)
+
+    def finish():
+        screen.close()
+        loop.quit()
+
+    timer.timeout.connect(advance)
+    timer.start(16)
+    loop.exec()
+    return True
+
+
 def _progress_bar(pct: float, width: int = 40, char: str = "█", empty: str = "░", color: str = "") -> str:
     filled = int(pct * width)
     bar = color + char * filled + DIM + empty * (width - filled) + RES

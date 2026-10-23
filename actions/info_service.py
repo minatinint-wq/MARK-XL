@@ -3,14 +3,24 @@ import requests
 import json
 import subprocess
 import webbrowser
+from html import unescape
+from threading import Lock
 from urllib.parse import quote_plus
 from datetime import datetime
 import time
+from xml.etree import ElementTree
 try:
     import feedparser  # For RSS fallback
     _FEEDPARSER_OK = True
 except ImportError:
     _FEEDPARSER_OK = False
+
+
+# Public RSS, no API key and no browser pop-up. Google News provides the
+# aggregation layer while each item preserves the originating publisher.
+DAILY_NEWS_RSS = "https://news.google.com/rss?hl=pt-BR&gl=BR&ceid=BR:pt-419"
+_DAILY_NEWS_CACHE: dict[str, object] = {"until": 0.0, "value": ""}
+_DAILY_NEWS_LOCK = Lock()
 
 def _log(message: str, player=None) -> None:
     print(f"[Info] {message}")
@@ -19,6 +29,66 @@ def _log(message: str, player=None) -> None:
             player.write_log(f"[Info] {message}")
         except Exception:
             pass
+
+
+def _rss_text(element, name: str) -> str:
+    child = element.find(name)
+    return unescape((child.text or "").strip()) if child is not None else ""
+
+
+def get_daily_top_news(parameters: dict | None = None, player=None) -> str:
+    """Return three current Portuguese-language headlines with provenance.
+
+    This is intentionally a compact, cache-backed source for the startup
+    briefing. It never opens a browser as a fallback and never fabricates news.
+    """
+    now = time.monotonic()
+    with _DAILY_NEWS_LOCK:
+        cached = str(_DAILY_NEWS_CACHE.get("value") or "")
+        if cached and now < float(_DAILY_NEWS_CACHE.get("until") or 0):
+            return cached + "\n(Fonte RSS em cache local.)"
+    try:
+        response = requests.get(
+            DAILY_NEWS_RSS,
+            headers={"User-Agent": "Jarvis-Mark-XLIV/1.0 (+local-news-briefing)"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        root = ElementTree.fromstring(response.content)
+        seen: set[str] = set()
+        articles: list[tuple[str, str, str, str]] = []
+        for item in root.findall("./channel/item"):
+            title = _rss_text(item, "title")
+            link = _rss_text(item, "link")
+            published = _rss_text(item, "pubDate")
+            source = _rss_text(item, "source")
+            # Some RSS records only carry the publisher in the trailing title.
+            if not source and " - " in title:
+                title, source = title.rsplit(" - ", 1)
+            key = " ".join(title.casefold().split())
+            if not title or key in seen:
+                continue
+            seen.add(key)
+            articles.append((title, source or "fonte não identificada", published, link))
+            if len(articles) == 3:
+                break
+        if not articles:
+            raise ValueError("feed RSS sem manchetes")
+        lines = ["📰 TOP 3 NOTÍCIAS DO DIA — RSS público"]
+        for index, (title, source, published, link) in enumerate(articles, 1):
+            lines.append(f"{index}. {title}\n   Fonte: {source} · {published}\n   Link: {link}")
+        result = "\n".join(lines)
+        with _DAILY_NEWS_LOCK:
+            _DAILY_NEWS_CACHE.update({"until": time.monotonic() + 600, "value": result})
+        _log("Notícias diárias atualizadas via RSS.", player)
+        return result
+    except Exception as exc:
+        with _DAILY_NEWS_LOCK:
+            stale = str(_DAILY_NEWS_CACHE.get("value") or "")
+        if stale:
+            return stale + "\n(Fonte RSS indisponível; usando a última coleta local.)"
+        _log(f"Daily news RSS error: {type(exc).__name__}: {exc}", player)
+        return "Notícias do dia indisponíveis: nenhuma fonte RSS respondeu."
 
 def get_crypto_price(parameters: dict, player=None) -> str:
     """Get cryptocurrency prices"""
@@ -1270,6 +1340,8 @@ def info_service(
         return get_brazilian_market_news(params, player)
     elif info_type in ["weather", "clima", "previsao"]:
         return get_weather(params, player)
+    elif info_type in ["daily_news", "top_news", "top_3_news", "noticias_do_dia", "manchetes"]:
+        return get_daily_top_news(params, player)
     elif info_type in ["news", "noticias", "newspaper"]:
         return get_news(params, player)
     elif info_type in ["sports", "esportes", "score", "scores"]:
@@ -1291,4 +1363,4 @@ def info_service(
     elif info_type in ["financing", "financiamento", "credito_imobiliario"]:
         return get_financing_data(params, player)
     else:
-        return "Unknown info type. Try: crypto, stock, weather, news, sports, currency, definition, trivia, fact, population, ibovespa, mini, market_news, crypto_brl, real_estate, financing, ou real_estate_news."
+        return "Unknown info type. Try: daily_news, crypto, stock, weather, news, sports, currency, definition, trivia, fact, population, ibovespa, mini, market_news, crypto_brl, real_estate, financing, ou real_estate_news."

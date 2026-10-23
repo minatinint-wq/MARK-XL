@@ -1,5 +1,6 @@
 import json
 import re
+import sqlite3
 import unicodedata
 from datetime import datetime
 from threading import Lock, Thread
@@ -18,6 +19,7 @@ BASE_DIR          = get_base_dir()
 MEMORY_PATH       = BASE_DIR / "memory" / "long_term.json"
 NEURAL_ACTIVITY   = BASE_DIR / "memory" / "neural_activity.json"
 VAULT_SEARCH_INDEX = BASE_DIR / "memory" / "vault_search_index.json"
+VAULT_SEARCH_DB = BASE_DIR / "memory" / "vault_search_index.sqlite3"
 BRAIN_ROOT = Path(r"D:\xxxx_memory")
 NEW_YYYY_ROOT = BRAIN_ROOT / "30_Sistema" / "obsidian_data" / "xxxx-vault" / "YYYY"
 LEGACY_YYYY_ROOT = BRAIN_ROOT / "obsidian_data" / "xxxx-vault" / "YYYY"
@@ -37,8 +39,9 @@ _MEMORY_CACHE = {"data": None, "ts": 0, "ttl": 5, "dirty": False}
 _SEARCH_INDEX_CACHE = {"data": None, "mtime": 0.0}
 _VAULT_REFRESH_RUNNING = False
 _SEARCH_INDEX_REFRESH_RUNNING = False
-SEARCH_INDEX_MAX_TEXT_CHARS = 20000
+SEARCH_INDEX_MAX_TEXT_CHARS = 6000
 SEARCH_INDEX_REFRESH_SECONDS = 300
+VISUAL_SAMPLE_PER_CATEGORY = 180
 
 def _vault_cache_valid():
     return _VAULT_CACHE["data"] is not None and (time.time() - _VAULT_CACHE["ts"]) < _VAULT_CACHE["ttl"]
@@ -285,67 +288,80 @@ def _iter_vault_search_files():
 
 
 def generate_vault_search_index() -> dict:
-    """Build the fast local search index used by search_knowledge.
+    """Build the on-disk FTS index used by local knowledge search.
 
-    This is intentionally separate from vault_index.json because the visual map
-    stores only sample files per category, while search needs every note.
+    Keeping every note body in a Python/JSON cache becomes expensive once the
+    vault reaches tens of thousands of memories. SQLite FTS keeps that corpus
+    local and indexed on disk; a search only returns matching rows.
     """
-    files: list[dict] = []
-    for vault, folder_name, entry in _iter_vault_search_files():
-        try:
-            raw = entry.read_text(encoding="utf-8", errors="ignore")
-            text, tags = _strip_yaml_frontmatter_and_tags(raw) if entry.suffix.lower() == ".md" else (raw, [])
-            first_line = text.strip().split("\n")[0].strip("# *").strip() if text.strip() else entry.stem
-            stat = entry.stat()
-            try:
-                rel_path = str(entry.resolve().relative_to(vault.resolve()))
-            except Exception:
-                rel_path = entry.name
-            preview = re.sub(r"\s+", " ", text).strip()[:1200]
-            searchable = " ".join(
-                [
-                    entry.stem,
-                    first_line or "",
-                    folder_name,
-                    rel_path,
-                    " ".join(str(tag) for tag in tags),
-                    text[:SEARCH_INDEX_MAX_TEXT_CHARS],
-                ]
-            )
-            files.append({
-                "name": entry.stem,
-                "title": first_line or entry.stem,
-                "path": str(entry),
-                "relative_path": rel_path,
-                "folder": folder_name,
-                "vault": str(vault),
-                "tags": tags,
-                "size": stat.st_size,
-                "mtime": stat.st_mtime,
-                "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "preview": preview,
-                "search": _normalize_search_text(searchable),
-                "title_search": _normalize_search_text(f"{entry.stem} {first_line}"),
-                "meta_search": _normalize_search_text(f"{folder_name} {rel_path} {' '.join(str(tag) for tag in tags)}"),
-            })
-        except Exception:
-            continue
-
     payload = {
-        "version": 1,
+        "version": 2,
+        "backend": "sqlite-fts5",
         "updated": datetime.now().isoformat(),
         "updated_ts": time.time(),
-        "total_files": len(files),
+        "total_files": 0,
         "vault_roots": [str(v) for v in _existing_vaults()],
-        "files": files,
     }
     try:
+        temp_db = VAULT_SEARCH_DB.with_suffix(".building.sqlite3")
+        if temp_db.exists():
+            temp_db.unlink()
+        connection = sqlite3.connect(temp_db)
+        try:
+            connection.executescript("""
+                PRAGMA journal_mode=OFF;
+                PRAGMA synchronous=OFF;
+                CREATE VIRTUAL TABLE notes USING fts5(
+                    title, meta, content, path UNINDEXED, folder UNINDEXED,
+                    relative_path UNINDEXED, tags UNINDEXED, preview UNINDEXED,
+                    tokenize='unicode61 remove_diacritics 2'
+                );
+            """)
+            batch: list[tuple[str, str, str, str, str, str, str, str]] = []
+            total = 0
+            for vault, folder_name, entry in _iter_vault_search_files():
+                try:
+                    raw = entry.read_text(encoding="utf-8", errors="ignore")
+                    text, tags = _strip_yaml_frontmatter_and_tags(raw) if entry.suffix.lower() == ".md" else (raw, [])
+                    first_line = text.strip().split("\n")[0].strip("# *").strip() if text.strip() else entry.stem
+                    try:
+                        rel_path = str(entry.resolve().relative_to(vault.resolve()))
+                    except Exception:
+                        rel_path = entry.name
+                    preview = re.sub(r"\s+", " ", text).strip()[:1200]
+                    batch.append((
+                        first_line or entry.stem,
+                        f"{entry.stem} {folder_name} {rel_path} {' '.join(str(tag) for tag in tags)}",
+                        text[:SEARCH_INDEX_MAX_TEXT_CHARS],
+                        str(entry), folder_name, rel_path,
+                        json.dumps(tags, ensure_ascii=False), preview,
+                    ))
+                    if len(batch) >= 512:
+                        connection.executemany(
+                            "INSERT INTO notes(title, meta, content, path, folder, relative_path, tags, preview) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                            batch,
+                        )
+                        total += len(batch)
+                        batch.clear()
+                except Exception:
+                    continue
+            if batch:
+                connection.executemany(
+                    "INSERT INTO notes(title, meta, content, path, folder, relative_path, tags, preview) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    batch,
+                )
+                total += len(batch)
+            connection.commit()
+            payload["total_files"] = total
+        finally:
+            connection.close()
+        temp_db.replace(VAULT_SEARCH_DB)
         VAULT_SEARCH_INDEX.parent.mkdir(parents=True, exist_ok=True)
         VAULT_SEARCH_INDEX.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         _SEARCH_INDEX_CACHE["data"] = payload
         _SEARCH_INDEX_CACHE["mtime"] = VAULT_SEARCH_INDEX.stat().st_mtime
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[Memory] Local FTS index failed: {exc}")
     return payload
 
 
@@ -360,7 +376,7 @@ def _load_vault_search_index() -> dict | None:
 
     try:
         data = json.loads(VAULT_SEARCH_INDEX.read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or not isinstance(data.get("files"), list):
+        if not isinstance(data, dict):
             return None
         _SEARCH_INDEX_CACHE["data"] = data
         _SEARCH_INDEX_CACHE["mtime"] = mtime
@@ -398,10 +414,64 @@ def _ensure_vault_search_index() -> dict | None:
     return generate_vault_search_index()
 
 
+def _search_vault_fts(query: str, max_results: int, category: str | None) -> list[dict] | None:
+    """Query the compact SQLite FTS index without loading the whole vault in RAM."""
+    if not VAULT_SEARCH_DB.exists():
+        return None
+    terms = [term for term in _normalize_search_text(query).split() if len(term) > 1]
+    if not terms:
+        return []
+    # Quote each token so punctuation in a voice command cannot become FTS syntax.
+    expression = " AND ".join('"' + term.replace('"', ' ') + '"' for term in terms)
+    category_terms = _category_search_terms(_normalize_search_text(category or ""))
+    try:
+        connection = sqlite3.connect(f"file:{VAULT_SEARCH_DB.as_posix()}?mode=ro", uri=True)
+        try:
+            rows = connection.execute(
+                "SELECT title, path, folder, relative_path, tags, preview, bm25(notes, 8.0, 3.0, 1.0) AS rank "
+                "FROM notes WHERE notes MATCH ? ORDER BY rank LIMIT ?",
+                (expression, max(max_results * 24, 96)),
+            ).fetchall()
+        finally:
+            connection.close()
+    except (sqlite3.Error, OSError):
+        return None
+
+    results: list[dict] = []
+    seen: set[str] = set()
+    for title, path, folder, relative_path, raw_tags, preview, rank in rows:
+        category_blob = _normalize_search_text(f"{folder} {relative_path} {raw_tags}")
+        if category_terms and not any(term in category_blob for term in category_terms):
+            continue
+        key = _result_key(str(title), str(folder))
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            tags = json.loads(raw_tags) if raw_tags else []
+        except (TypeError, json.JSONDecodeError):
+            tags = []
+        results.append({
+            "title": title or "Nota",
+            "path": path or "",
+            "folder": folder or "",
+            "snippet": preview or "",
+            # FTS ranks are negative where lower is better; keep a positive, readable score.
+            "score": round(max(0.0, 100.0 + float(rank or 0.0)), 1),
+            "tags": tags if isinstance(tags, list) else [],
+        })
+        if len(results) >= max_results:
+            break
+    return results
+
+
 def _search_vault_index(query: str, max_results: int = 10, category: str | None = None) -> list[dict] | None:
     data = _ensure_vault_search_index()
     if not data:
         return None
+
+    if data.get("backend") == "sqlite-fts5":
+        return _search_vault_fts(query, max_results, category)
 
     query_norm = _normalize_search_text(query)
     terms = [term for term in query_norm.split() if len(term) > 1]
@@ -901,6 +971,7 @@ def generate_vault_index():
     }
     for folder, count in structure.items():
         files = []
+        sampled = 0
         sources: dict[str, int] = {}
         total_size = 0
         newest_mtime = 0.0
@@ -919,13 +990,18 @@ def generate_vault_index():
                     continue
                 seen.add(resolved)
                 try:
-                    text = md_file.read_text(encoding="utf-8", errors="ignore")
-                    fields, body = _extract_frontmatter(text)
-                    first_line = body.strip().split("\n")[0].strip("# *").strip() if body.strip() else md_file.stem
                     stat = md_file.stat()
                     total_size += stat.st_size
                     newest_mtime = max(newest_mtime, stat.st_mtime)
                     sources[source] = sources.get(source, 0) + 1
+                    # The map is a visual sample, not a second full-text database.
+                    # A cap keeps a 50k+ local vault responsive in WebGL; the real
+                    # count remains in file_count and fast search uses SQLite FTS.
+                    if sampled >= VISUAL_SAMPLE_PER_CATEGORY:
+                        continue
+                    text = md_file.read_text(encoding="utf-8", errors="ignore")
+                    fields, body = _extract_frontmatter(text)
+                    first_line = body.strip().split("\n")[0].strip("# *").strip() if body.strip() else md_file.stem
                     try:
                         rel_path = str(md_file.resolve().relative_to(vault.resolve()))
                     except Exception:
@@ -944,11 +1020,13 @@ def generate_vault_index():
                         "type": fields.get("type", ""),
                         "frontmatter_folder": fields.get("folder", ""),
                     })
+                    sampled += 1
                 except Exception:
                     pass
         data["categories"][folder] = {
             "file_count": count,
             "sample_files": files,
+            "sampled_count": len(files),
             "sources": sources,
             "total_size": total_size,
             "latest_modified": datetime.fromtimestamp(newest_mtime).isoformat() if newest_mtime else "",

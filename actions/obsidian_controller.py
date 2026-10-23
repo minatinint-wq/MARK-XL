@@ -675,8 +675,10 @@ def obsidian_control(parameters: dict = None, player=None, speak=None) -> str:
             pass
 
     try:
-        if action in ("status", "stats"):
-            return _status()
+        if action in ("status", "stats", "count", "count_notes"):
+            from actions.brain_activity import reading_notes
+            with reading_notes(player):
+                return _status()
         if action in ("categories", "list_categories"):
             return _list_categories()
         if action in ("list", "list_notes"):

@@ -6,10 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from actions.cpu_acceleration import configure_cpu_acceleration, configure_opencv
+
+configure_cpu_acceleration()
 import numpy as np
 
 try:
     import cv2
+    configure_opencv(cv2)
     _CV2 = True
 except ImportError:
     _CV2 = False

@@ -18,18 +18,15 @@ _SLEEP_LOCK = threading.Lock()
 _SLEEP_THREAD: threading.Thread | None = None
 _STOP_SLEEP = threading.Event()
 PARAMETER_MODULES: dict[str, dict[str, Any]] = {
-    "leve": {"label": "leve", "description": "Resposta rapida com pouco contexto. Bom para comandos simples.", "context_budget_chars": 6000, "max_results": 6, "deep_count": 2, "per_note_chars": 1000, "max_context_budget_chars": 12000},
-    "plus": {"label": "plus", "description": "Equilibrado. Padrao local-first para uso diario.", "context_budget_chars": 9000, "max_results": 9, "deep_count": 4, "per_note_chars": 1600, "max_context_budget_chars": 20000},
-    "pro": {"label": "pro", "description": "Mais contexto e leitura profunda sem pesar demais.", "context_budget_chars": 14000, "max_results": 12, "deep_count": 6, "per_note_chars": 2200, "max_context_budget_chars": 24000},
-    "max": {"label": "max", "description": "Pesquisa pesada para cruzar varias notas do cerebro.", "context_budget_chars": 20000, "max_results": 16, "deep_count": 8, "per_note_chars": 3000, "max_context_budget_chars": 30000},
-    "ultra": {"label": "ultra", "description": "Maior leitura sob demanda. Use para estudos e analises longas.", "context_budget_chars": 30000, "max_results": 20, "deep_count": 10, "per_note_chars": 4200, "max_context_budget_chars": 32000},
+    "normal": {"label": "normal", "description": "Uso leve com modelo 1B e esforco baixo.", "llm_mode": "normal", "context_budget_chars": 5000, "max_results": 6, "deep_count": 2, "per_note_chars": 1200, "max_context_budget_chars": 6000},
+    "rapido": {"label": "rapido", "description": "Pesquisa equilibrada com modelo 4B e esforco medio.", "llm_mode": "fast", "context_budget_chars": 10000, "max_results": 10, "deep_count": 5, "per_note_chars": 1800, "max_context_budget_chars": 12000},
+    "ultra": {"label": "ultra", "description": "Analise profunda sob demanda com modelo Gemma 4 8B e esforco alto.", "llm_mode": "ultra", "context_budget_chars": 18000, "max_results": 16, "deep_count": 8, "per_note_chars": 2600, "max_context_budget_chars": 20000},
 }
 
 MODULE_ALIASES = {
-    "light": "leve", "rapido": "leve", "rapida": "leve",
-    "normal": "plus", "padrao": "plus", "default": "plus",
-    "turbo": "pro", "alto": "pro",
-    "full": "max", "maximum": "max", "pro_max": "max",
+    "light": "normal", "leve": "normal", "plus": "normal", "padrao": "normal", "default": "normal",
+    "fast": "rapido", "rapida": "rapido", "medio": "rapido", "pro": "rapido", "turbo": "rapido",
+    "deep": "ultra", "profundo": "ultra", "alto": "ultra", "high": "ultra", "max": "ultra", "full": "ultra", "maximum": "ultra", "pro_max": "ultra",
     "ultra_max": "ultra", "laboratorio": "ultra", "lab": "ultra",
 }
 
@@ -42,7 +39,7 @@ def _normalize_module_name(value: Any) -> str:
 def _module_parameters(module: Any) -> dict[str, Any]:
     key = _normalize_module_name(module)
     if key not in PARAMETER_MODULES:
-        key = "plus"
+        key = "normal"
     preset = dict(PARAMETER_MODULES[key])
     preset.pop("label", None)
     preset.pop("description", None)
@@ -53,13 +50,13 @@ def _module_parameters(module: Any) -> dict[str, Any]:
 
 
 def _default_operational_parameters() -> dict[str, Any]:
-    return _module_parameters("plus")
+    return _module_parameters("normal")
 
 def _default_state() -> dict[str, Any]:
     return {
         "profile": "local_ai_full_neural",
         "pinned": True,
-        "parameter_module": "plus",
+        "parameter_module": "normal",
         "architecture": "local-first RAG over Obsidian vault with tool execution",
         "operational_parameters": _default_operational_parameters(),
         "research_enabled": True,
@@ -84,9 +81,9 @@ def _load_state() -> dict[str, Any]:
                 state.update(data)
                 merged = _default_operational_parameters()
                 merged.update(state.get("operational_parameters") or {})
-                module = _normalize_module_name(state.get("parameter_module") or merged.get("module") or "plus")
+                module = _normalize_module_name(state.get("parameter_module") or merged.get("module") or "normal")
                 if module not in PARAMETER_MODULES:
-                    module = "plus"
+                    module = "normal"
                 merged["module"] = module
                 state["parameter_module"] = module
                 state["operational_parameters"] = merged
@@ -149,7 +146,8 @@ def _write_status_note(state: dict[str, Any], totals: dict[str, Any]) -> None:
         "",
         f"- Perfil: {state.get('profile') or 'local_ai_full_neural'}",
         f"- Fixado: {'sim' if state.get('pinned') else 'nao'}",
-        f"- Modulo de parametros: {state.get('parameter_module') or params.get('module') or 'plus'}",
+        f"- Modulo de parametros: {state.get('parameter_module') or params.get('module') or 'normal'}",
+        f"- Modo LLM: {params.get('llm_mode') or 'normal'}",
         f"- Context budget: {params.get('context_budget_chars')} chars",
         f"- Max results: {params.get('max_results')}",
         f"- Deep notes: {params.get('deep_count')}",
@@ -204,7 +202,8 @@ def _write_profile_note(state: dict[str, Any], totals: dict[str, Any]) -> Path:
         "",
         "## Parametros operacionais elevados",
         "",
-        f"- Modulo ativo: {state.get('parameter_module') or params.get('module') or 'plus'}",
+        f"- Modulo ativo: {state.get('parameter_module') or params.get('module') or 'normal'}",
+        f"- Modo LLM: {params.get('llm_mode') or 'normal'}",
         f"- Context budget: {params.get('context_budget_chars')} chars",
         f"- Max results: {params.get('max_results')}",
         f"- Deep notes: {params.get('deep_count')}",
@@ -361,7 +360,8 @@ def _status() -> str:
         "Brain mode pronto.",
         f"Perfil: {state.get('profile') or 'local_ai_full_neural'}",
         f"Fixado como IA local: {'sim' if state.get('pinned') else 'nao'}",
-        f"Modulo ativo: {state.get('parameter_module') or params.get('module') or 'plus'}",
+        f"Modulo ativo: {state.get('parameter_module') or params.get('module') or 'normal'}",
+        f"Modo LLM: {params.get('llm_mode') or 'normal'}",
         f"Parametros: context={params.get('context_budget_chars')} chars, results={params.get('max_results')}, deep={params.get('deep_count')}, per_note={params.get('per_note_chars')} chars",
         f"Modo pesquisa: {'ativo' if state.get('research_enabled') else 'inativo'}",
         f"Modo sono: {'rodando' if state.get('sleep_running') else 'parado'}",
@@ -375,20 +375,32 @@ def _status() -> str:
     ]
     return "\n".join(lines)
 
+
+def get_active_llm_mode() -> str:
+    """Return the local model tier attached to the active brain preset."""
+    state = _load_state()
+    operational = state.get("operational_parameters") or {}
+    configured = str(operational.get("llm_mode") or "").strip().lower()
+    if configured in {"normal", "fast", "ultra"}:
+        return configured
+    module = _normalize_module_name(state.get("parameter_module") or operational.get("module") or "normal")
+    return str(PARAMETER_MODULES.get(module, PARAMETER_MODULES["normal"])["llm_mode"])
+
+
 def _available_modules_text() -> str:
     lines = ["Modulos de parametros do cerebro:"]
     for key, preset in PARAMETER_MODULES.items():
         lines.append(
             f"- {key}: context={preset['context_budget_chars']} chars, "
             f"results={preset['max_results']}, deep={preset['deep_count']}, "
-            f"per_note={preset['per_note_chars']} chars. {preset['description']}"
+            f"per_note={preset['per_note_chars']} chars, llm={preset['llm_mode']}. {preset['description']}"
         )
-    lines.append("Use brain_mode action='modulo' com module='leve|plus|pro|max|ultra'.")
+    lines.append("Use brain_mode action='modulo' com module='normal|rapido|ultra'.")
     return "\n".join(lines)
 
 
 def _set_parameter_module(params: dict[str, Any]) -> str:
-    requested = params.get("module") or params.get("modulo") or params.get("level") or params.get("name") or params.get("preset") or params.get("mode") or "plus"
+    requested = params.get("module") or params.get("modulo") or params.get("level") or params.get("name") or params.get("preset") or params.get("mode") or "normal"
     module = _normalize_module_name(requested)
     if module not in PARAMETER_MODULES:
         return f"Modulo desconhecido: {requested}.\n" + _available_modules_text()
@@ -413,7 +425,7 @@ def _set_parameter_module(params: dict[str, Any]) -> str:
     return (
         f"Modulo de parametros ativado: {module}.\n"
         f"Context={operational['context_budget_chars']} chars, results={operational['max_results']}, "
-        f"deep={operational['deep_count']}, per_note={operational['per_note_chars']} chars.\n"
+        f"deep={operational['deep_count']}, per_note={operational['per_note_chars']} chars, llm={operational['llm_mode']}.\n"
         "Startup continua otimizado: o vault nao e pre-carregado.\n"
         f"Nota de perfil: {profile_note}"
     )
@@ -437,7 +449,7 @@ def _pin_local_ai(params: dict[str, Any]) -> str:
     if params.get("max_context_budget_chars") is not None:
         operational["max_context_budget_chars"] = max(1200, min(int(params["max_context_budget_chars"]), 32000))
 
-    module = operational.get("module") or state.get("parameter_module") or "plus"
+    module = operational.get("module") or state.get("parameter_module") or "normal"
     state.update(
         {
             "profile": str(params.get("profile") or "local_ai_full_neural"),
@@ -474,7 +486,9 @@ def brain_mode(parameters: dict | None = None, player=None, speak=None) -> str:
             pass
 
     if action in {"status", "stats", "estado"}:
-        return _status()
+        from actions.brain_activity import reading_notes
+        with reading_notes(player):
+            return _status()
 
     if action in {"modules", "modulos", "listar_modulos", "parameter_modules"}:
         return _available_modules_text()

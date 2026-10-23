@@ -8,6 +8,9 @@ Python/
 # Build artifacts
 *.egg-info/
 dist/
+!assets/reactor_lab/music-bank/stb-vorbis/dist/
+!assets/reactor_lab/music-bank/stb-vorbis/dist/index.js
+!assets/reactor_lab/music-bank/stb-vorbis/dist/index.d.ts
 build/
 
 # Logs
@@ -73,3 +76,45 @@ runas_progress_screenshot.png
 *_screenshot.png
 *_capture.png
 !config/*.example.json
+# Organized Jarvis payload
+arquivos/config/api_keys.json
+arquivos/config/*credentials*.json
+arquivos/config/*secret*.json
+arquivos/config/*token*.json
+arquivos/config/iphone_shortcuts.json
+arquivos/config/local_llm.json
+arquivos/config/jarvis_bridge.json
+arquivos/config/jarvis_relay.json
+arquivos/config/iphone_social_config.html
+arquivos/memory/*.json
+arquivos/memory/neural_map_data.js
+arquivos/memory/vault_groups.json
+arquivos/memory/vault_index.json
+arquivos/memory/vault_search_index.json
+arquivos/memory/sound_samples/
+arquivos/memory_map_new.html
+
+
+# Protected local Fish Audio credentials and voice preferences
+config/*.dpapi
+config/*.dpapi.tmp
+config/fish_voice.json
+config/fish_voice.tmp
+backup-fish-voice-*/
+
+# Local runtime, private exports, and editor snapshots
+logs/
+backups/
+backup-*/
+generated_videos/
+sketchbook/modelos/
+*.bak
+*.before_*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+assets/screenshots/
+assets/images/
+config/*.yaml
+config/*.yml

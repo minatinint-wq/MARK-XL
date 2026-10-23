@@ -9,7 +9,7 @@ from urllib.parse import quote_plus, urlencode
 from urllib.request import Request, urlopen
 
 
-USER_AGENT = "MARK-XL-JARVIS/1.0 (local personal assistant; weather_report)"
+USER_AGENT = "MARK-XLIV-JARVIS/1.0 (local personal assistant; weather_report)"
 
 WEATHER_CODES = {
     0: "ceu limpo",

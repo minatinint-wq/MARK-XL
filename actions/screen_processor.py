@@ -11,11 +11,15 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from actions.cpu_acceleration import configure_cpu_acceleration, configure_opencv
+
+configure_cpu_acceleration()
 import numpy as np
 import sounddevice as sd
 
 try:
     import cv2
+    configure_opencv(cv2)
     _CV2 = True
 except ImportError:
     _CV2 = False
@@ -559,6 +563,15 @@ def screen_process(
     params    = parameters or {}
     user_text = (params.get("text") or params.get("user_text") or "").strip()
     angle     = params.get("angle", "screen").lower().strip()
+    # NVIDIA Camera Lab deterministic reroute
+    request_key = user_text.casefold()
+    requested_mode = str(params.get("provider") or params.get("camera_mode") or "").casefold()
+    if (
+        ("nvidia" in request_key and any(word in request_key for word in ("camera", "c\u00e2mera", "lab")))
+        or requested_mode in {"nvidia", "nvidia_camera", "nvidia-camera"}
+    ):
+        from actions.nvidia_camera_lab import nvidia_camera_lab
+        return nvidia_camera_lab({"action": "open"}, player=player)
     image_path = _resolve_image_path(params.get("path") or params.get("image_path") or params.get("screenshot_path"))
 
     if not user_text:

@@ -257,6 +257,13 @@ def camera_hand_ui(parameters: dict | None = None, player=None, speak=None) -> s
     params = parameters or {}
     action = str(params.get("action", "start")).lower().strip()
 
+    if str(params.get('mode','')).lower().strip() == 'libras':
+        if player is None or not hasattr(player, 'set_libras_mode'):
+            return 'Abra o modo Libras pelo botão Libras na interface principal.'
+        closing = action in {'stop','close','fechar','sair','encerrar'}
+        player.set_libras_mode(not closing)
+        return 'Modo Libras fechado.' if closing else 'Modo Libras aberto. Interprete o gesto e revise o texto antes de enviar.'
+
     global _SESSION
     if action in {
         "stop",

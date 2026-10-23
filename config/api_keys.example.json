@@ -1,4 +1,7 @@
 {
   "gemini_api_key": "PASTE_YOUR_GEMINI_API_KEY_HERE",
-  "additional_keys": []
+  "additional_keys": [],
+  "nvidia_api_key": "PASTE_YOUR_NVIDIA_API_KEY_HERE",
+  "nvidia_image_model": "black-forest-labs/flux.2-klein-4b",
+  "nvidia_video_endpoint": "https://api.nvcf.nvidia.com/v2/nvcf/pexec/functions/d09cd49d-d7f2-4361-928f-ea22af707249"
 }

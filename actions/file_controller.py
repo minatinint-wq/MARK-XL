@@ -2,6 +2,7 @@ import os
 import shutil
 import platform
 from pathlib import Path
+from actions.runtime_identity import APP_ROOT
 from datetime import datetime
 
 try:
@@ -14,14 +15,13 @@ _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
 
 _SAFE_ROOTS: list[Path] = [
     Path.home(),
-    Path.home() / "Desktop" / "MARK-XL",
-    Path.home() / "Desktop" / "MARK-XLI",
+    APP_ROOT,
 ]
 _OBSIDIAN_ROOTS: list[Path] = [
     Path(r"D:\xxxx_memory\obsidian_data\xxxx-vault\YYYY\learned"),
     Path(r"D:\xxxx_memory"),
-    Path.home() / "Desktop" / "MARK-XL" / "memory" / "learned",
-    Path.home() / "Desktop" / "MARK-XL" / "memory",
+    APP_ROOT / "memory" / "learned",
+    APP_ROOT / "memory",
 ]
 
 _CATEGORY_ALIASES = {

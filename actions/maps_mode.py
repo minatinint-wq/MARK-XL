@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CONFIG_PATH = BASE_DIR / "config" / "maps_mode.json"
-USER_AGENT = "MARK-XL-JARVIS/1.0 (local personal assistant; maps_mode)"
+USER_AGENT = "MARK-XLIV-JARVIS/1.0 (local personal assistant; maps_mode)"
 
 
 def _default_config() -> dict[str, Any]:
@@ -316,6 +316,30 @@ def _split_route_query(text: str) -> tuple[str, str] | None:
                 return origin, destination
     return None
 
+def _trigger_route_animation(origin: str, destination: str, mode: str, status: str) -> None:
+    """Avisa o HUD 3D (Blender/Three.js) para tocar a animação RouteConsult.
+
+    Grava memory/route_anim_trigger.json — nunca quebra a consulta se falhar.
+    """
+    try:
+        from datetime import datetime, timezone
+
+        trigger_path = BASE_DIR / "memory" / "route_anim_trigger.json"
+        payload = {
+            "event": "route_consult",
+            "origin": _clean(origin),
+            "destination": _clean(destination),
+            "mode": _clean(mode) or "driving",
+            "status": status,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "action_3d": "RouteConsult",
+        }
+        trigger_path.parent.mkdir(parents=True, exist_ok=True)
+        trigger_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _route_response(origin: str, destination: str, mode: str, cfg: dict[str, Any], open_maps: bool = False) -> str:
     if not origin:
         return "Me passa a origem da rota. Exemplo: de Avenida Paulista ate Shopping Eldorado."
@@ -323,12 +347,14 @@ def _route_response(origin: str, destination: str, mode: str, cfg: dict[str, Any
         return "Me passa o destino da rota."
 
     url = _google_directions_url(origin, destination, mode)
+    _trigger_route_animation(origin, destination, mode, "started")
     try:
         origin_geo = _geocode_one(origin, cfg)
         destination_geo = _geocode_one(destination, cfg)
         route = _route_osrm(origin_geo, destination_geo, mode)
         if open_maps:
             webbrowser.open(url)
+        _trigger_route_animation(origin, destination, mode, "done")
         return (
             f"De {origin} ate {destination}: cerca de {_format_duration(route.get('duration'))}, "
             f"{_format_distance(route.get('distance'))} ({_google_travel_mode(mode)}, sem transito em tempo real).\n"
@@ -337,6 +363,7 @@ def _route_response(origin: str, destination: str, mode: str, cfg: dict[str, Any
     except Exception as exc:
         if open_maps:
             webbrowser.open(url)
+        _trigger_route_animation(origin, destination, mode, "fallback")
         return f"Nao consegui calcular o tempo exato ({exc}). Link da rota: {url}"
 
 

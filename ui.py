@@ -10,10 +10,14 @@ import sys
 import threading
 import time
 from pathlib import Path
+from actions.runtime_identity import MARK_NAME, WINDOW_TITLE
 
 _qt_rules = os.environ.get("QT_LOGGING_RULES", "")
 if "qt.qpa.window" not in _qt_rules:
     os.environ["QT_LOGGING_RULES"] = (_qt_rules + ";qt.qpa.window=false").strip(";")
+
+from actions.cpu_acceleration import CPU_ACCELERATION  # Configure before importing Qt/native math libraries.
+from actions.graphics_runtime import GRAPHICS_MODE  # Configure before importing Qt.
 
 import psutil
 
@@ -37,6 +41,8 @@ def _base_dir() -> Path:
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent
 
+QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
+
 BASE_DIR   = _base_dir()
 CONFIG_DIR = BASE_DIR / "config"
 API_FILE   = CONFIG_DIR / "api_keys.json"
@@ -47,6 +53,22 @@ _LEFT_W  = 148
 _RIGHT_W = 340
 
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if _OS == "Windows" else 0
+
+
+def _initial_model_tier() -> str:
+    """Use the brain route because search_knowledge follows this persisted preset."""
+    state_path = BASE_DIR / "memory" / "brain_mode_state.json"
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        operational = state.get("operational_parameters") or {}
+        tier = str(operational.get("llm_mode") or "").strip().lower()
+        if tier in {"normal", "fast", "ultra"}:
+            return tier
+        module = str(state.get("parameter_module") or operational.get("module") or "normal").strip().lower()
+        return {"rapido": "fast", "rápido": "fast", "ultra": "ultra"}.get(module, "normal")
+    except Exception:
+        return "normal"
 
 
 class C:
@@ -80,13 +102,17 @@ class _SysMetrics:
     def __init__(self):
         self.cpu  = 0.0
         self.mem  = 0.0
-        self.net  = 0.0   
-        self.gpu  = -1.0  
-        self.tmp  = -1.0  
+        self.net  = 0.0
+        self.gpu  = -1.0
+        self.tmp  = -1.0
         self._lock = threading.Lock()
         self._last_net = psutil.net_io_counters()
         self._last_net_t = time.time()
         self._running = True
+        self._cached_gpu = -1.0
+        self._cached_tmp = -1.0
+        self._last_gpu_check = 0.0
+        self._last_tmp_check = 0.0
         t = threading.Thread(target=self._loop, daemon=True)
         t.start()
 
@@ -114,9 +140,15 @@ class _SysMetrics:
         self._last_net   = nc
         self._last_net_t = now
 
-        gpu = self._get_gpu()
+        if now - self._last_gpu_check >= 1.0:
+            self._cached_gpu = self._get_gpu()
+            self._last_gpu_check = now
+        gpu = self._cached_gpu
 
-        tmp = self._get_temp()
+        if now - self._last_tmp_check >= 10.0:
+            self._cached_tmp = self._get_temp()
+            self._last_tmp_check = now
+        tmp = self._cached_tmp
 
         with self._lock:
             self.cpu = cpu
@@ -131,7 +163,8 @@ class _SysMetrics:
             r = subprocess.run(
                 ["nvidia-smi", "--query-gpu=utilization.gpu",
                  "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=2
+                capture_output=True, text=True, timeout=2,
+                creationflags=_NO_WINDOW
             )
             if r.returncode == 0:
                 vals = [float(v.strip()) for v in r.stdout.strip().split("\n") if v.strip()]
@@ -223,7 +256,8 @@ class _SysMetrics:
                 r = subprocess.run(
                     ["powershell", "-Command",
                      "(Get-WmiObject MSAcpi_ThermalZoneTemperature -Namespace root/wmi).CurrentTemperature"],
-                    capture_output=True, text=True, timeout=3
+                    capture_output=True, text=True, timeout=3,
+                    creationflags=_NO_WINDOW
                 )
                 if r.returncode == 0 and r.stdout.strip():
                     raw = float(r.stdout.strip().split("\n")[0])
@@ -256,6 +290,7 @@ class HudCanvas(QWidget):
         self.muted    = False
         self.speaking = False
         self.state    = "INITIALISING"
+        self.visual_mode = "normal"
 
         self._tick       = 0
         self._scale      = 1.0
@@ -271,22 +306,72 @@ class HudCanvas(QWidget):
         self._blink_tick = 0
         self._particles: list[list[float]] = []
         self._face_px: QPixmap | None = None
+        self._avatar_mode = True
+        self._voice_level = 0.0
+        self._voice_target = 0.0
+        self._mouth_level = 0.0
+        self._mouth_target = 0.0
+        self._mouth_impulse = 0.0
+        self._waveform = [0.0] * 48
+        self._waveform_target = [0.0] * 48
+        self._voice_bands = [0.0] * 14
+        self._avatar_angle = 0.0
+        self._energy_phase = 0.0
+        self._mesh_y = 0.0
+        self._mesh_x = 14.0
+        self._sphere_points: list[tuple[float, float, float, float]] = []
+        self._sphere_edges: list[tuple[int, int]] = []
+        self._build_consciousness_mesh()
         self._load_face(face_path)
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
-        self._tmr.start(16)
+        self._tmr.start(40)  # Fallback canvas animation.
+        self._reactor = None
+        try:
+            from actions.reactor_view import ReactorView
+            self._reactor = ReactorView(self)
+            self._reactor.setGeometry(self.rect())
+            self._reactor.failed.connect(self._reactor_failed)
+            QApplication.instance().aboutToQuit.connect(self._reactor.shutdown)
+            # The WebGL scene animates on its own requestAnimationFrame loop.  Native
+            # status changes are low-frequency, while PCM voice metrics have their own
+            # immediate path below, so polling the bridge at 8 Hz avoids needless Qt /
+            # Chromium wakeups without making speech or the eye states feel delayed.
+            self._tmr.start(125)
+        except Exception as exc:
+            print(f"[Reactor3D] Using canvas fallback: {type(exc).__name__}")
+
+    def _reactor_failed(self, message):
+        reactor, self._reactor = self._reactor, None
+        if reactor is not None:
+            reactor.shutdown()
+            reactor.hide()
+            reactor.deleteLater()
+        # The painted fallback owns its animation, so restore its original frame rate.
+        self._tmr.start(40)
+        print(f"[Reactor3D] {message}; canvas fallback active")
+        self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if getattr(self, "_reactor", None) is not None:
+            self._reactor.setGeometry(self.rect())
 
     def _load_face(self, path: str):
+        if self._avatar_mode:
+            self._face_px = None
+            return
         try:
             from PIL import Image, ImageDraw
             import io
-            img = Image.open(path).convert("RGBA")
+            img = Image.open(Path(path)).convert("RGBA")
             sz  = min(img.size)
             img = img.resize((sz, sz), Image.LANCZOS)
-            mk  = Image.new("L", (sz, sz), 0)
-            ImageDraw.Draw(mk).ellipse((2, 2, sz - 2, sz - 2), fill=255)
-            img.putalpha(mk)
+            if not self._avatar_mode:
+                mk  = Image.new("L", (sz, sz), 0)
+                ImageDraw.Draw(mk).ellipse((2, 2, sz - 2, sz - 2), fill=255)
+                img.putalpha(mk)
             buf = io.BytesIO()
             img.save(buf, format="PNG")
             px = QPixmap(); px.loadFromData(buf.getvalue())
@@ -294,19 +379,1060 @@ class HudCanvas(QWidget):
         except Exception:
             self._face_px = None
 
+    def set_voice_metrics(self, payload: dict):
+        """Drive the visual from real user/AI PCM energy."""
+        if self._reactor is not None:
+            self._reactor.set_voice_metrics(payload)
+            return
+        try:
+            level = max(0.0, min(1.0, float(payload.get("level") or 0.0)))
+        except (TypeError, ValueError):
+            level = 0.0
+        source = str(payload.get("source") or "").casefold()
+        if source == "ai":
+            self._voice_target = level
+        elif not self.speaking:
+            self._voice_target = level * 0.42
+
+        raw_wave = payload.get("waveform") or []
+        if raw_wave:
+            values = []
+            for index in range(len(self._waveform_target)):
+                source_index = min(len(raw_wave) - 1, int(index * len(raw_wave) / len(self._waveform_target)))
+                try:
+                    values.append(max(-1.0, min(1.0, float(raw_wave[source_index]))))
+                except (TypeError, ValueError):
+                    values.append(0.0)
+            self._waveform_target = values
+            wave_peak = max((abs(value) for value in values), default=0.0)
+            wave_rms = math.sqrt(sum(value * value for value in values) / max(1, len(values)))
+            speech_energy = max(level, wave_peak * 0.92, wave_rms * 2.45)
+            if source == "ai" or self.speaking:
+                previous = self._mouth_target
+                self._mouth_target = max(0.0, min(1.0, speech_energy * 1.75))
+                self._mouth_impulse = max(self._mouth_impulse, abs(self._mouth_target - previous) * 1.8)
+
+        raw_bands = payload.get("bands") or []
+        if raw_bands:
+            self._voice_bands = [
+                max(0.0, min(1.0, float(value))) for value in raw_bands[:14]
+            ]
+            self._voice_bands.extend([0.0] * (14 - len(self._voice_bands)))
+
+    def set_visual_mode(self, mode: str):
+        aliases = {
+            "devil": "evil", "maligno": "evil", "malvada": "evil", "malvado": "evil",
+            "anjo": "cute", "angel": "cute", "cute": "cute", "fofo": "cute", "fofa": "cute",
+            "sentinela": "sentinel", "tatico": "sentinel", "tático": "sentinel",
+            "padrao": "normal", "padrão": "normal", "classico": "normal", "clássico": "normal",
+        }
+        mode = aliases.get(str(mode or "").strip().casefold(), str(mode or "").strip().casefold())
+        if mode not in {"normal", "evil", "cute", "sentinel"}:
+            mode = "normal"
+        self.visual_mode = mode
+        self._particles.clear()
+        self.update()
+
+    def _mode_palette(self):
+        return {
+            "normal": ((48, 190, 255), (190, 238, 255)),
+            "evil": ((255, 32, 32), (255, 70, 70)),
+            "cute": ((255, 255, 255), (235, 235, 235)),
+            "sentinel": ((48, 150, 255), (0, 255, 196)),
+        }.get(self.visual_mode, ((48, 190, 255), (190, 238, 255)))
+
+    def _build_consciousness_mesh(self):
+        """Create a deterministic 3D neural sphere and its local synapses."""
+        count = 88
+        golden_angle = math.pi * (3.0 - math.sqrt(5.0))
+        for index in range(count):
+            y = 1.0 - (index / (count - 1)) * 2.0
+            radius = math.sqrt(max(0.0, 1.0 - y * y))
+            theta = golden_angle * index
+            x = math.cos(theta) * radius
+            z = math.sin(theta) * radius
+            phase = (index * 2.399963 + y * 1.7) % (math.pi * 2)
+            self._sphere_points.append((x, y, z, phase))
+
+        edges: set[tuple[int, int]] = set()
+        for index, point in enumerate(self._sphere_points):
+            distances = []
+            for other_index, other in enumerate(self._sphere_points):
+                if index == other_index:
+                    continue
+                distance = sum((point[axis] - other[axis]) ** 2 for axis in range(3))
+                distances.append((distance, other_index))
+            for distance, other_index in sorted(distances)[:3]:
+                if distance < 0.22:
+                    edges.add(tuple(sorted((index, other_index))))
+        self._sphere_edges = sorted(edges)
+
+    def _project_consciousness(self, cx: float, cy: float, radius: float, y_angle: float | None = None):
+        ay = math.radians(self._mesh_y if y_angle is None else y_angle)
+        ax = math.radians(self._mesh_x + math.sin(self._energy_phase * 0.55) * 5.0)
+        cos_y, sin_y = math.cos(ay), math.sin(ay)
+        cos_x, sin_x = math.cos(ax), math.sin(ax)
+        activity = max(self._voice_level, 0.18 if self.speaking else 0.0)
+        projected = []
+        for index, (x, y, z, phase) in enumerate(self._sphere_points):
+            x1 = x * cos_y + z * sin_y
+            z1 = -x * sin_y + z * cos_y
+            y2 = y * cos_x - z1 * sin_x
+            z2 = y * sin_x + z1 * cos_x
+            wave = abs(self._waveform[index % len(self._waveform)])
+            neural_noise = math.sin(phase + self._energy_phase * 2.1)
+            deformation = 1.0 + neural_noise * 0.018 + activity * (0.025 + wave * 0.11)
+            perspective = 0.91 + (z2 + 1.0) * 0.075
+            projected.append((
+                cx + x1 * radius * deformation * perspective,
+                cy + y2 * radius * deformation * perspective,
+                z2,
+                phase,
+            ))
+        return projected
+
+    def _draw_synthetic_face(self, p: QPainter, cx: float, cy: float, radius: float, activity: float, thinking: bool):
+        """Build a humanoid expression from holographic symbols and voice energy."""
+        primary, accent = self._mode_palette()
+        mode = self.visual_mode
+        blink_period = 92 if mode == "cute" else 137
+        blink_tick = self._tick % blink_period
+        if blink_tick < 2:
+            eye_open = 0.08
+        elif blink_tick == 2:
+            eye_open = 0.42
+        else:
+            eye_open = 1.0
+
+        eye_y = cy - radius * (0.17 if mode == "cute" else 0.19)
+        eye_offset = radius * (0.32 if mode == "cute" else 0.34)
+        eye_w = radius * (0.27 if mode == "cute" else 0.245)
+        eye_height_gain = {"evil": 0.068, "cute": 0.155, "sentinel": 0.082}.get(mode, 0.105)
+        eye_h = radius * (eye_height_gain + activity * 0.018) * eye_open
+        focus_shift = math.sin(self._energy_phase * (2.4 if thinking else 0.72)) * eye_w * (0.14 if thinking else 0.045)
+        focus_y = math.sin(self._energy_phase * 0.83) * eye_h * 0.12
+        symbol_sets = (("0", "1", "/", "+", "<"), (">", "+", "\\", "1", "0"))
+
+        for side, symbols in ((-1, symbol_sets[0]), (1, symbol_sets[1])):
+            ex = cx + side * eye_offset
+            eye = QPainterPath()
+            eye.moveTo(ex - eye_w, eye_y)
+            eye.cubicTo(
+                QPointF(ex - eye_w * 0.48, eye_y - eye_h),
+                QPointF(ex + eye_w * 0.48, eye_y - eye_h),
+                QPointF(ex + eye_w, eye_y),
+            )
+            eye.cubicTo(
+                QPointF(ex + eye_w * 0.48, eye_y + eye_h),
+                QPointF(ex - eye_w * 0.48, eye_y + eye_h),
+                QPointF(ex - eye_w, eye_y),
+            )
+            eye.closeSubpath()
+
+            p.setPen(QPen(QColor(*primary, 48 + int(activity * 55)), 6.0))
+            p.setBrush(QBrush(QColor(22, 12, 0, 125)))
+            p.drawPath(eye)
+            eye_pen = QPen(QColor(*primary, 220 + int(activity * 35)), 1.25 + activity * 1.2)
+            eye_pen.setDashPattern([3.2, 1.5, 0.8, 1.5])
+            p.setPen(eye_pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(eye)
+
+            pupil_x = ex + focus_shift
+            pupil_y = eye_y + focus_y
+            pupil_scale = 0.43 if mode == "cute" else 0.24 if mode == "evil" else 0.30
+            pupil_rx = eye_w * (pupil_scale + activity * 0.06)
+            pupil_ry = max(1.3, eye_h * (0.66 if eye_open > 0.3 else 0.12))
+            pupil_glow = QRadialGradient(QPointF(pupil_x, pupil_y), max(pupil_rx, 2.0))
+            pupil_glow.setColorAt(0.0, QColor(235, 255, 255, 255))
+            pupil_glow.setColorAt(0.22, QColor(*accent, 245))
+            pupil_glow.setColorAt(0.62, QColor(*accent, 120))
+            pupil_glow.setColorAt(1.0, QColor(*accent, 0))
+            p.setPen(QPen(QColor(*accent, 225), 1.0))
+            p.setBrush(QBrush(pupil_glow))
+            p.drawEllipse(QRectF(pupil_x - pupil_rx, pupil_y - pupil_ry, pupil_rx * 2, pupil_ry * 2))
+            if eye_open > 0.3:
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(QColor(255, 251, 214, 250)))
+                p.drawEllipse(QPointF(pupil_x, pupil_y), 1.8 + activity * 1.8, 1.8 + activity * 1.8)
+
+            # Code fragments trace the brow and make the eye itself feel assembled.
+            font_size = max(6, int(radius * 0.052))
+            p.setFont(QFont("Consolas", font_size, QFont.Weight.Bold))
+            for index, symbol in enumerate(symbols):
+                fraction = index / max(1, len(symbols) - 1)
+                sx = ex - eye_w * 0.82 + fraction * eye_w * 1.64
+                arch = 1.0 - abs(fraction * 2.0 - 1.0)
+                sy = eye_y - eye_h - radius * (0.055 + arch * 0.035)
+                alpha = 105 + int(95 * arch) + int(activity * 35)
+                p.setPen(QPen(QColor(*primary, min(245, alpha)), 1))
+                p.drawText(
+                    QRectF(sx - font_size, sy - font_size, font_size * 2, font_size * 2),
+                    Qt.AlignmentFlag.AlignCenter,
+                    symbol,
+                )
+
+            # Focused segmented eyebrow, angled toward the consciousness core.
+            brow = QPainterPath()
+            brow.moveTo(ex - eye_w * 0.92, eye_y - eye_h * 1.55)
+            brow.cubicTo(
+                QPointF(ex - eye_w * 0.25, eye_y - eye_h * (1.82 if side < 0 else 1.58)),
+                QPointF(ex + eye_w * 0.38, eye_y - eye_h * (1.58 if side < 0 else 1.82)),
+                QPointF(ex + eye_w * 0.92, eye_y - eye_h * 1.36),
+            )
+            if mode == "evil":
+                brow.translate(0, side * 0.0)
+            brow_pen = QPen(QColor(*primary, 155 + int(activity * 70)), 1.35)
+            brow_pen.setDashPattern([5.0, 2.2])
+            p.setPen(brow_pen)
+            p.drawPath(brow)
+
+        # A sparse bridge connects both eyes to the central reactor like a nose.
+        bridge_top = eye_y + eye_h * 0.35
+        bridge_bottom = cy + radius * 0.15
+        bridge = QPainterPath(QPointF(cx, bridge_top))
+        bridge.lineTo(cx - radius * 0.045, cy + radius * 0.02)
+        bridge.lineTo(cx + radius * 0.035, bridge_bottom)
+        bridge_pen = QPen(QColor(*primary, 105 + int(activity * 60)), 1.0)
+        bridge_pen.setDashPattern([2.0, 3.0])
+        p.setPen(bridge_pen)
+        p.drawPath(bridge)
+
+        # The mouth is a spectrum analyser shaped as lips. Real PCM samples
+        # control its opening and every internal voice bar.
+        mouth_y = cy + radius * 0.34
+        mouth_w = radius * (0.36 if mode == "cute" else 0.44 if mode == "evil" else 0.42)
+        idle_open = radius * (0.012 if not thinking else 0.019)
+        mouth_open = idle_open + radius * activity * (0.105 if self.speaking else 0.038)
+        speech_curve = math.sin(self._energy_phase * 3.2) * radius * activity * 0.012
+        mouth = QPainterPath()
+        mouth.moveTo(cx - mouth_w, mouth_y)
+        mouth.cubicTo(
+            QPointF(cx - mouth_w * 0.48, mouth_y - mouth_open - speech_curve),
+            QPointF(cx + mouth_w * 0.48, mouth_y - mouth_open + speech_curve),
+            QPointF(cx + mouth_w, mouth_y),
+        )
+        mouth.cubicTo(
+            QPointF(cx + mouth_w * 0.48, mouth_y + mouth_open + speech_curve),
+            QPointF(cx - mouth_w * 0.48, mouth_y + mouth_open - speech_curve),
+            QPointF(cx - mouth_w, mouth_y),
+        )
+        mouth.closeSubpath()
+
+        p.setPen(QPen(QColor(*primary, 58 + int(activity * 90)), 6.0))
+        p.setBrush(QBrush(QColor(8, 6, 2, 195)))
+        p.drawPath(mouth)
+        mouth_pen = QPen(QColor(*primary, 215 + int(activity * 40)), 1.25 + activity * 1.45)
+        mouth_pen.setDashPattern([4.2, 1.6, 0.8, 1.6])
+        p.setPen(mouth_pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(mouth)
+
+        p.save()
+        p.setClipPath(mouth)
+        bar_count = 15
+        for index in range(bar_count):
+            fraction = index / max(1, bar_count - 1)
+            x = cx - mouth_w * 0.84 + fraction * mouth_w * 1.68
+            sample = abs(self._waveform[(index * 3) % len(self._waveform)])
+            band = self._voice_bands[index % len(self._voice_bands)]
+            height = max(1.0, mouth_open * (0.16 + activity * 0.34 + sample * 0.66 + band * 0.28))
+            color = QColor(*accent, 205) if index % 5 == 0 else QColor(*primary, 220)
+            p.setPen(QPen(color, max(1.0, radius * 0.012)))
+            p.drawLine(QPointF(x, mouth_y - height), QPointF(x, mouth_y + height))
+        p.restore()
+
+        mouth_symbols = ("0", "1", ":", "+", "V", "+", ":", "1", "0")
+        p.setFont(QFont("Consolas", max(6, int(radius * 0.043)), QFont.Weight.Bold))
+        for index, symbol in enumerate(mouth_symbols):
+            fraction = index / max(1, len(mouth_symbols) - 1)
+            x = cx - mouth_w * 0.82 + fraction * mouth_w * 1.64
+            y = mouth_y + mouth_open + radius * 0.055
+            p.setPen(QPen(QColor(*primary, 105 + int(activity * 95)), 1))
+            p.drawText(QRectF(x - 8, y - 6, 16, 12), Qt.AlignmentFlag.AlignCenter, symbol)
+
+        if mode == "evil":
+            # Angular fangs made from the same voice spectrum, kept abstract.
+            p.setPen(QPen(QColor(*accent, 185 + int(activity * 55)), 1.2))
+            for side in (-1, 1):
+                fang_x = cx + side * mouth_w * 0.48
+                p.drawLine(QPointF(fang_x - side * 5, mouth_y - mouth_open * 0.65), QPointF(fang_x, mouth_y + mouth_open * 0.55))
+                p.drawLine(QPointF(fang_x, mouth_y + mouth_open * 0.55), QPointF(fang_x + side * 5, mouth_y - mouth_open * 0.35))
+        elif mode == "cute":
+            # Two tiny cheek constellations make the expression warmer.
+            for side in (-1, 1):
+                cheek_x = cx + side * radius * 0.43
+                cheek_y = cy + radius * 0.14
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(QColor(*primary, 72 + int(activity * 55))))
+                for offset in (-5, 0, 5):
+                    p.drawEllipse(QPointF(cheek_x + offset, cheek_y + abs(offset) * 0.3), 1.5, 1.5)
+        elif mode == "sentinel":
+            p.setPen(QPen(QColor(*accent, 190), 1.0))
+            p.drawLine(QPointF(cx - mouth_w * 0.75, mouth_y), QPointF(cx + mouth_w * 0.75, mouth_y))
+
+    def _draw_cinematic_face_legacy(self, p: QPainter, cx: float, cy: float, radius: float, activity: float, thinking: bool):
+        """Suggest a humanoid presence through constellations, never a literal cartoon face."""
+        primary, accent = self._mode_palette()
+        mode = self.visual_mode
+        blink_tick = self._tick % (103 if mode == "cute" else 151)
+        lid = 0.12 if blink_tick < 2 else 0.48 if blink_tick == 2 else 1.0
+        eye_y = cy - radius * 0.17
+        eye_offset = radius * 0.31
+        eye_width = radius * (0.25 if mode == "cute" else 0.23)
+        eye_curve = radius * ({"evil": 0.012, "cute": 0.045, "sentinel": 0.006}.get(mode, 0.022)) * lid
+        evil_slant = radius * 0.078 if mode == "evil" else radius * 0.018 if mode == "normal" else 0.0
+        focus = math.sin(self._energy_phase * (2.3 if thinking else 0.7)) * eye_width * (0.12 if thinking else 0.035)
+        rune_font = QFont("Consolas", max(6, int(radius * 0.044)), QFont.Weight.Bold)
+
+        # Each eye is a sparse neural constellation. No enclosed eye shape is drawn.
+        for side in (-1, 1):
+            ex = cx + side * eye_offset
+            anchors = []
+            count = 9
+            for index in range(count):
+                local = -1.0 + 2.0 * index / (count - 1)
+                arch = 1.0 - local * local
+                slant = local * evil_slant * side
+                y = eye_y - eye_curve * arch + slant
+                if mode == "sentinel":
+                    y += abs(local) * radius * 0.012
+                anchors.append(QPointF(ex + local * eye_width, y))
+
+            for index in range(count - 1):
+                if index in {2, 6}:
+                    continue
+                a, b = anchors[index], anchors[index + 1]
+                pulse = max(0.0, math.sin(self._energy_phase * 2.2 + index + side))
+                alpha = 105 + int(activity * 80 + pulse * 45)
+                p.setPen(QPen(QColor(*primary, min(235, alpha)), 1.0 + activity * 0.55))
+                p.drawLine(a, b)
+
+            for index, point in enumerate(anchors):
+                node_size = 1.0 + (1.2 if index in {0, 4, 8} else 0.0) + activity * 0.45
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(QColor(*accent if index in {1, 7} else primary, 120 + int(activity * 90))))
+                p.drawEllipse(point, node_size, node_size)
+
+            pupil_x = ex + focus
+            pupil_y = eye_y + (evil_slant * 0.08 if mode == "evil" else 0.0)
+            pupil_w = eye_width * ({"evil": 0.16, "cute": 0.27, "sentinel": 0.22}.get(mode, 0.21))
+            pupil_h = max(1.0, radius * ({"evil": 0.018, "cute": 0.035, "sentinel": 0.012}.get(mode, 0.025)) * lid)
+            p.setPen(QPen(QColor(*accent, 62 + int(activity * 70)), 5.0))
+            p.drawLine(QPointF(pupil_x - pupil_w, pupil_y), QPointF(pupil_x + pupil_w, pupil_y))
+            p.setPen(QPen(QColor(225, 255, 255, 230), 1.15 + activity * 0.7))
+            p.drawLine(QPointF(pupil_x - pupil_w, pupil_y), QPointF(pupil_x + pupil_w, pupil_y))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(*accent, 235)))
+            p.drawEllipse(QPointF(pupil_x, pupil_y), 1.8 + activity, pupil_h)
+
+            # Small code fragments occupy gaps in the eye constellation.
+            p.setFont(rune_font)
+            runes = ("01", "//", "<>" if side < 0 else "><")
+            for rune_index, anchor_index in enumerate((1, 4, 7)):
+                point = anchors[anchor_index]
+                p.setPen(QPen(QColor(*primary, 75 + int(activity * 55)), 1))
+                p.drawText(
+                    QRectF(point.x() - 12, point.y() - radius * 0.09, 24, 11),
+                    Qt.AlignmentFlag.AlignCenter,
+                    runes[rune_index],
+                )
+
+        # Three floating nodes imply a bridge/nose while preserving the central reactor.
+        nose_nodes = (
+            QPointF(cx, cy - radius * 0.045),
+            QPointF(cx - radius * 0.035, cy + radius * 0.095),
+            QPointF(cx + radius * 0.042, cy + radius * 0.105),
+        )
+        nose_pen = QPen(QColor(*primary, 72 + int(activity * 55)), 0.9)
+        nose_pen.setDashPattern([1.0, 3.0])
+        p.setPen(nose_pen)
+        p.drawLine(nose_nodes[0], nose_nodes[1])
+        p.drawLine(nose_nodes[1], nose_nodes[2])
+        for point in nose_nodes:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(*accent, 115 + int(activity * 60))))
+            p.drawEllipse(point, 1.35, 1.35)
+
+        # The mouth is an open spectral slit made of separated data points.
+        mouth_y = cy + radius * 0.31
+        mouth_width = radius * (0.34 if mode == "cute" else 0.41)
+        mouth_count = 13
+        mouth_open = radius * activity * (0.048 if self.speaking else 0.014)
+        if mode == "evil":
+            mouth_open *= 0.78
+        upper = []
+        lower = []
+        for index in range(mouth_count):
+            local = -1.0 + 2.0 * index / (mouth_count - 1)
+            edge_fade = max(0.0, 1.0 - abs(local) ** 1.7)
+            sample = self._waveform[(index * 4) % len(self._waveform)]
+            if mode == "evil":
+                expression = abs(local) * radius * 0.018 - edge_fade * radius * 0.006
+                spectral = sample * radius * activity * 0.018
+            elif mode == "cute":
+                expression = -edge_fade * radius * 0.018
+                spectral = sample * radius * activity * 0.010
+            else:
+                expression = -edge_fade * radius * 0.004
+                spectral = sample * radius * activity * 0.012
+            x = cx + local * mouth_width
+            separation = mouth_open * edge_fade
+            upper.append(QPointF(x, mouth_y + expression + spectral - separation))
+            lower.append(QPointF(x, mouth_y + expression - spectral + separation))
+
+        for row_index, row in enumerate((upper, lower)):
+            for index in range(len(row) - 1):
+                if (index + row_index) % 4 == 1:
+                    continue
+                band = self._voice_bands[index % len(self._voice_bands)]
+                p.setPen(QPen(QColor(*primary, 105 + int(activity * 95 + band * 45)), 0.9 + band * 0.75))
+                p.drawLine(row[index], row[index + 1])
+            for index, point in enumerate(row):
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QBrush(QColor(*accent if index in {2, 6, 10} else primary, 105 + int(activity * 100))))
+                p.drawEllipse(point, 0.8 + activity * 0.65, 0.8 + activity * 0.65)
+
+        # Momentary scan echoes make the face feel decoded from the surrounding field.
+        if self._tick % 19 < 3:
+            echo_y = eye_y + (self._tick % 3 - 1) * radius * 0.026
+            p.setPen(QPen(QColor(*accent, 34 + int(activity * 35)), 0.7))
+            p.drawLine(QPointF(cx - radius * 0.62, echo_y), QPointF(cx + radius * 0.62, echo_y))
+
+    def _draw_cinematic_face(self, p: QPainter, cx: float, cy: float, radius: float, activity: float, thinking: bool):
+        """Decode a humanoid presence from moving HUD machinery and live PCM."""
+        primary, accent = self._mode_palette()
+        mode = self.visual_mode
+        mode_gain = {"evil": 1.18, "cute": 0.88, "sentinel": 1.08}.get(mode, 1.0)
+        scan_phase = self._energy_phase * (2.4 if thinking else 1.15) * mode_gain
+
+        # Eyes are targeting instruments assembled from separated plates and ticks.
+        eye_y = cy - radius * 0.18
+        eye_offset = radius * 0.30
+        eye_w = radius * (0.30 if mode == "cute" else 0.285)
+        lid = 0.10 if self._tick % 149 < 2 else 1.0
+        focus_x = math.sin(scan_phase * 0.63) * eye_w * (0.13 if thinking else 0.035)
+        focus_y = math.cos(scan_phase * 0.47) * radius * (0.018 if thinking else 0.005)
+
+        for side in (-1, 1):
+            ex = cx + side * eye_offset
+            slant = (-side * radius * 0.055) if mode == "evil" else 0.0
+            plate_count = 9
+            points = []
+            for index in range(plate_count):
+                local = -1.0 + index * 2.0 / (plate_count - 1)
+                arch = 1.0 - local * local
+                y = eye_y - arch * radius * (0.035 if mode == "cute" else 0.020) * lid
+                y += local * slant
+                points.append(QPointF(ex + local * eye_w, y))
+
+            for index in range(plate_count - 1):
+                if index in {1, 5}:
+                    continue
+                a, b = points[index], points[index + 1]
+                pulse = max(0.0, math.sin(scan_phase * 2.1 + index * 0.9 + side))
+                p.setPen(QPen(QColor(*primary, 135 + int(85 * pulse + activity * 30)), 1.35 + pulse * 0.8))
+                p.drawLine(a, b)
+                lower_a = QPointF(a.x(), eye_y * 2 - a.y() + radius * 0.020 * lid)
+                lower_b = QPointF(b.x(), eye_y * 2 - b.y() + radius * 0.020 * lid)
+                p.setPen(QPen(QColor(*primary, 80 + int(65 * pulse + activity * 35)), 0.85 + pulse * 0.45))
+                p.drawLine(lower_a, lower_b)
+                # A short perpendicular circuit contact makes each eyelid mechanical.
+                dx, dy = b.x() - a.x(), b.y() - a.y()
+                length = max(1.0, math.hypot(dx, dy))
+                nx, ny = -dy / length, dx / length
+                contact = points[index if side < 0 else index + 1]
+                p.setPen(QPen(QColor(*accent, 85 + int(activity * 75)), 0.8))
+                p.drawLine(contact, QPointF(contact.x() + nx * radius * 0.025, contact.y() + ny * radius * 0.025))
+
+            iris_x, iris_y = ex + focus_x, eye_y + focus_y
+            iris_r = radius * ({"evil": 0.046, "cute": 0.062}.get(mode, 0.052)) * lid
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor(*accent, 82), 5.5))
+            p.drawEllipse(QPointF(iris_x, iris_y), iris_r * 1.35, iris_r * 1.35)
+            p.setPen(QPen(QColor(*accent, 225), 1.15 + activity * 0.9))
+            p.drawEllipse(QPointF(iris_x, iris_y), iris_r, iris_r)
+            p.setPen(QPen(QColor(235, 253, 255, 240), 1.0))
+            p.drawLine(QPointF(iris_x - iris_r * 1.7, iris_y), QPointF(iris_x + iris_r * 1.7, iris_y))
+            p.drawLine(QPointF(iris_x, iris_y - iris_r * 1.7), QPointF(iris_x, iris_y + iris_r * 1.7))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(245, 255, 255, 245)))
+            p.drawEllipse(QPointF(iris_x, iris_y), 1.6 + activity * 1.5, 1.6 + activity * 1.5)
+
+            # Radial acquisition ticks complete the eye without enclosing it.
+            p.setPen(QPen(QColor(*primary, 120 + int(activity * 70)), 0.8))
+            for tick in range(8):
+                ang = tick * math.pi / 4 + side * scan_phase * 0.08
+                inner = iris_r * 1.65
+                outer = iris_r * (2.15 if tick % 2 == 0 else 1.95)
+                p.drawLine(
+                    QPointF(iris_x + math.cos(ang) * inner, iris_y + math.sin(ang) * inner),
+                    QPointF(iris_x + math.cos(ang) * outer, iris_y + math.sin(ang) * outer),
+                )
+
+            p.setFont(QFont("Consolas", max(5, int(radius * 0.038)), QFont.Weight.Bold))
+            p.setPen(QPen(QColor(*primary, 115), 1))
+            label = "TRK" if side < 0 else f"{int(activity * 99):02d}"
+            p.drawText(QRectF(ex - eye_w, eye_y + radius * 0.055, eye_w * 2, 12), Qt.AlignmentFlag.AlignCenter, label)
+
+        # Three circuit points hint at the center of a face and feed the speech array.
+        bridge = [
+            QPointF(cx, cy - radius * 0.035),
+            QPointF(cx - radius * 0.030, cy + radius * 0.085),
+            QPointF(cx + radius * 0.030, cy + radius * 0.085),
+        ]
+        p.setPen(QPen(QColor(*accent, 90 + int(activity * 55)), 0.8, Qt.PenStyle.DashLine))
+        p.drawLine(bridge[0], bridge[1]); p.drawLine(bridge[0], bridge[2])
+        p.setPen(Qt.PenStyle.NoPen); p.setBrush(QBrush(QColor(*accent, 190)))
+        for node in bridge:
+            p.drawEllipse(node, 1.4, 1.4)
+
+        # The mouth is a real voice aperture. Fast envelope attack makes syllables visible.
+        mouth_y = cy + radius * 0.31
+        mouth_w = radius * (0.35 if mode == "cute" else 0.43)
+        mouth_energy = max(self._mouth_level, 0.055 if self.speaking else 0.0)
+        phoneme = mouth_energy * (0.78 + 0.22 * abs(math.sin(scan_phase * 4.7)))
+        mouth_gap = min(radius * 0.12, radius * (0.007 + phoneme * 0.135 + self._mouth_impulse * 0.024))
+        if mode == "evil":
+            mouth_gap *= 0.92
+        segment_count = 17
+        upper, lower = [], []
+        for index in range(segment_count):
+            local = -1.0 + index * 2.0 / (segment_count - 1)
+            center_gain = max(0.0, 1.0 - abs(local) ** 1.6)
+            sample = self._waveform[(index * 3) % len(self._waveform)]
+            band = self._voice_bands[index % len(self._voice_bands)]
+            spectral = (sample * 0.22 + band * 0.18) * radius * mouth_energy
+            spectral = max(-mouth_gap * 0.38, min(mouth_gap * 0.38, spectral))
+            expression = 0.0
+            if mode == "evil":
+                expression = abs(local) * radius * 0.025 - radius * 0.012
+            elif mode == "cute":
+                expression = -center_gain * radius * 0.018
+            x = cx + local * mouth_w
+            gap = mouth_gap * center_gain
+            upper.append(QPointF(x, mouth_y + expression - gap - spectral))
+            lower.append(QPointF(x, mouth_y + expression + gap + spectral))
+
+        for index in range(segment_count - 1):
+            if index % 5 == 2:
+                continue
+            band = self._voice_bands[index % len(self._voice_bands)]
+            glow_alpha = 115 + int(mouth_energy * 120 + band * 20)
+            p.setPen(QPen(QColor(*primary, min(245, glow_alpha)), 1.0 + mouth_energy * 1.6))
+            p.drawLine(upper[index], upper[index + 1])
+            p.drawLine(lower[index], lower[index + 1])
+
+        # Short spectrum contacts add articulation without turning the mouth into a cage.
+        for index in range(1, segment_count - 1):
+            if index not in {3, 6, 8, 10, 13}:
+                continue
+            band = self._voice_bands[index % len(self._voice_bands)]
+            sample = abs(self._waveform[(index * 3) % len(self._waveform)])
+            strength = max(mouth_energy, band * 0.9, sample * 0.8)
+            top, bottom = upper[index], lower[index]
+            mid = (top.y() + bottom.y()) * 0.5
+            half = min((bottom.y() - top.y()) * 0.34, radius * 0.032 + strength * radius * 0.018)
+            alpha = 70 + int(strength * 175)
+            p.setPen(QPen(QColor(*accent, min(245, alpha)), 0.8 + strength * 1.5))
+            p.drawLine(QPointF(top.x(), mid - half), QPointF(bottom.x(), mid + half))
+
+        p.setPen(QPen(QColor(235, 253, 255, 130 + int(mouth_energy * 120)), 0.75))
+        center_gap = mouth_gap * 0.48
+        p.drawLine(QPointF(cx - mouth_w * 0.72, mouth_y), QPointF(cx - center_gap, mouth_y))
+        p.drawLine(QPointF(cx + center_gap, mouth_y), QPointF(cx + mouth_w * 0.72, mouth_y))
+
+        p.setFont(QFont("Consolas", max(5, int(radius * 0.035)), QFont.Weight.Bold))
+        p.setPen(QPen(QColor(*primary, 90 + int(mouth_energy * 90)), 1))
+        voice_text = f"VOICE {int(mouth_energy * 100):02d}%"
+        p.drawText(QRectF(cx - mouth_w, mouth_y + mouth_gap + radius * 0.035, mouth_w * 2, 11), Qt.AlignmentFlag.AlignCenter, voice_text)
+
+    def _draw_armored_face(self, p: QPainter, cx: float, cy: float, radius: float, activity: float, thinking: bool):
+        """Render a voice-reactive holographic armored mask from independent HUD plates."""
+        primary, accent = self._mode_palette()
+        mode = self.visual_mode
+        mouth_energy = max(self._mouth_level, 0.045 if self.speaking else 0.0)
+        jaw_drop = radius * mouth_energy * 0.018
+        pulse = 0.5 + 0.5 * math.sin(self._energy_phase * (3.2 if thinking else 1.6))
+
+        # Translucent armored silhouette. The broken border keeps it holographic.
+        mask = QPainterPath()
+        mask.moveTo(cx, cy - radius * 0.63)
+        mask.lineTo(cx - radius * 0.29, cy - radius * 0.57)
+        mask.lineTo(cx - radius * 0.46, cy - radius * 0.37)
+        mask.lineTo(cx - radius * 0.51, cy - radius * 0.03)
+        mask.lineTo(cx - radius * 0.43, cy + radius * 0.29)
+        mask.lineTo(cx - radius * 0.24, cy + radius * 0.50 + jaw_drop)
+        mask.lineTo(cx, cy + radius * 0.59 + jaw_drop)
+        mask.lineTo(cx + radius * 0.24, cy + radius * 0.50 + jaw_drop)
+        mask.lineTo(cx + radius * 0.43, cy + radius * 0.29)
+        mask.lineTo(cx + radius * 0.51, cy - radius * 0.03)
+        mask.lineTo(cx + radius * 0.46, cy - radius * 0.37)
+        mask.lineTo(cx + radius * 0.29, cy - radius * 0.57)
+        mask.closeSubpath()
+
+        face_glass = QLinearGradient(QPointF(cx - radius * 0.25, cy - radius * 0.62), QPointF(cx + radius * 0.22, cy + radius * 0.60))
+        face_glass.setColorAt(0.0, QColor(27, 54, 66, 252))
+        face_glass.setColorAt(0.22, QColor(5, 25, 36, 250))
+        face_glass.setColorAt(0.55, QColor(1, 10, 18, 252))
+        face_glass.setColorAt(0.82, QColor(10, 29, 39, 250))
+        face_glass.setColorAt(1.0, QColor(36, 64, 72, 248))
+        p.setBrush(QBrush(face_glass))
+        edge_pen = QPen(QColor(*primary, 185 + int(activity * 55)), 2.0 + activity * 1.15)
+        edge_pen.setDashPattern([8.0, 2.2, 1.2, 2.2])
+        p.setPen(edge_pen)
+        p.drawPath(mask)
+
+        # Solid temple blades widen the helmet and create a battle-ready silhouette.
+        for side in (-1, 1):
+            temple = QPainterPath()
+            temple.moveTo(cx + side * radius * 0.29, cy - radius * 0.55)
+            temple.lineTo(cx + side * radius * 0.52, cy - radius * 0.37)
+            temple.lineTo(cx + side * radius * 0.56, cy + radius * 0.08)
+            temple.lineTo(cx + side * radius * 0.43, cy + radius * 0.31)
+            temple.lineTo(cx + side * radius * 0.36, cy - radius * 0.16)
+            temple.closeSubpath()
+            temple_metal = QLinearGradient(
+                QPointF(cx + side * radius * 0.56, cy - radius * 0.40),
+                QPointF(cx + side * radius * 0.34, cy + radius * 0.30),
+            )
+            temple_metal.setColorAt(0.0, QColor(55, 88, 98, 248))
+            temple_metal.setColorAt(0.42, QColor(8, 29, 40, 252))
+            temple_metal.setColorAt(1.0, QColor(28, 58, 68, 248))
+            p.setPen(QPen(QColor(*primary, 150 + int(activity * 75)), 1.45))
+            p.setBrush(QBrush(temple_metal))
+            p.drawPath(temple)
+
+        # Crown and forehead plates form the recognizable armored brow.
+        forehead = QPainterPath()
+        forehead.moveTo(cx, cy - radius * 0.59)
+        forehead.lineTo(cx - radius * 0.235, cy - radius * 0.51)
+        forehead.lineTo(cx - radius * 0.31, cy - radius * 0.25)
+        forehead.lineTo(cx - radius * 0.105, cy - radius * 0.31)
+        forehead.lineTo(cx, cy - radius * 0.22)
+        forehead.lineTo(cx + radius * 0.105, cy - radius * 0.31)
+        forehead.lineTo(cx + radius * 0.31, cy - radius * 0.25)
+        forehead.lineTo(cx + radius * 0.235, cy - radius * 0.51)
+        forehead.closeSubpath()
+        forehead_metal = QLinearGradient(QPointF(cx, cy - radius * 0.60), QPointF(cx, cy - radius * 0.20))
+        forehead_metal.setColorAt(0.0, QColor(82, 112, 120, 245))
+        forehead_metal.setColorAt(0.18, QColor(18, 45, 57, 248))
+        forehead_metal.setColorAt(0.62, QColor(3, 17, 27, 252))
+        forehead_metal.setColorAt(1.0, QColor(36, 66, 76, 246))
+        p.setPen(QPen(QColor(*primary, 175 + int(pulse * 65)), 1.6))
+        p.setBrush(QBrush(forehead_metal))
+        p.drawPath(forehead)
+        p.setPen(QPen(QColor(*accent, 125 + int(activity * 65)), 0.9))
+        p.drawLine(QPointF(cx, cy - radius * 0.59), QPointF(cx, cy - radius * 0.24))
+
+        # Angular glowing eye slits define the helmet expression.
+        blink = 0.07 if self._tick % 151 < 2 else 1.0
+        look = math.sin(self._energy_phase * (2.2 if thinking else 0.58)) * radius * (0.022 if thinking else 0.006)
+        for side in (-1, 1):
+            inner_x = cx + side * radius * 0.070
+            outer_x = cx + side * radius * 0.430
+            outer_top = cy - radius * (0.265 if mode == "evil" else 0.245)
+            inner_top = cy - radius * (0.145 if mode == "evil" else 0.165)
+            eye_mid = cy - radius * 0.145
+            eye_h = radius * ({"cute": 0.075, "evil": 0.036}.get(mode, 0.046)) * blink
+            eye = QPainterPath()
+            eye.moveTo(inner_x + look, inner_top)
+            eye.lineTo(outer_x + look, outer_top)
+            eye.lineTo(outer_x - side * radius * 0.025 + look, eye_mid + eye_h)
+            eye.lineTo(inner_x + side * radius * 0.018 + look, eye_mid + eye_h * 0.72)
+            eye.closeSubpath()
+
+            # Layered eye reactor bloom: stronger and voice-reactive while preserving the sharp armor slit.
+            eye_glow_x = (inner_x + outer_x) * 0.5 + look
+            eye_glow_y = (inner_top + outer_top + eye_mid * 2) * 0.25
+            speech_glow = max(activity, mouth_energy) if self.speaking else activity * 0.35
+            eye_aura = QRadialGradient(QPointF(eye_glow_x, eye_glow_y), radius * (0.19 + speech_glow * 0.055))
+            eye_aura.setColorAt(0.0, QColor(245, 255, 255, 190 + int(speech_glow * 60)))
+            eye_aura.setColorAt(0.22, QColor(*accent, 125 + int(speech_glow * 110)))
+            eye_aura.setColorAt(0.58, QColor(*primary, 38 + int(speech_glow * 65)))
+            eye_aura.setColorAt(1.0, QColor(*primary, 0))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(eye_aura))
+            p.drawEllipse(QPointF(eye_glow_x, eye_glow_y), radius * 0.245, radius * 0.095)
+
+            p.setPen(QPen(QColor(*accent, 75 + int(speech_glow * 95)), 8.0 + speech_glow * 3.0))
+            p.setBrush(QBrush(QColor(*accent, 65 + int(speech_glow * 90))))
+            p.drawPath(eye)
+            p.setPen(QPen(QColor(*accent, 125 + int(speech_glow * 100)), 4.0 + speech_glow * 2.5))
+            p.drawPath(eye)
+            p.setPen(QPen(QColor(225, 252, 255, 235), 1.15 + activity * 1.0))
+            p.setBrush(QBrush(QColor(*accent, 155 + int(activity * 85))))
+            p.drawPath(eye)
+
+            # Targeting contacts inside each luminous aperture.
+            eye_center_x = (inner_x + outer_x) * 0.5 + look
+            eye_center_y = (inner_top + outer_top + eye_mid * 2) * 0.25
+            p.setPen(QPen(QColor(250, 255, 255, 230), 0.8))
+            p.drawLine(QPointF(eye_center_x - radius * 0.025, eye_center_y), QPointF(eye_center_x + radius * 0.025, eye_center_y))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(250, 255, 255, 245)))
+            p.drawEllipse(QPointF(eye_center_x, eye_center_y), 1.45 + activity, 1.45 + activity)
+
+        # Temple, cheek and nose armor are separate floating plates.
+        for side in (-1, 1):
+            cheek = QPainterPath()
+            cheek.moveTo(cx + side * radius * 0.44, cy - radius * 0.15)
+            cheek.lineTo(cx + side * radius * 0.36, cy + radius * 0.20)
+            cheek.lineTo(cx + side * radius * 0.20, cy + radius * 0.34)
+            cheek.lineTo(cx + side * radius * 0.13, cy + radius * 0.07)
+            cheek.closeSubpath()
+            cheek_metal = QLinearGradient(
+                QPointF(cx + side * radius * 0.46, cy - radius * 0.12),
+                QPointF(cx + side * radius * 0.14, cy + radius * 0.35),
+            )
+            cheek_metal.setColorAt(0.0, QColor(39, 73, 83, 244))
+            cheek_metal.setColorAt(0.45, QColor(5, 21, 31, 250))
+            cheek_metal.setColorAt(1.0, QColor(24, 51, 61, 246))
+            p.setPen(QPen(QColor(*primary, 145 + int(activity * 75)), 1.35))
+            p.setBrush(QBrush(cheek_metal))
+            p.drawPath(cheek)
+
+            p.setPen(QPen(QColor(*accent, 82 + int(activity * 65)), 0.8))
+            for vent in range(3):
+                y = cy + radius * (0.12 + vent * 0.055)
+                p.drawLine(
+                    QPointF(cx + side * radius * (0.27 + vent * 0.012), y),
+                    QPointF(cx + side * radius * (0.36 + vent * 0.010), y - radius * 0.025),
+                )
+
+        nose = QPainterPath()
+        nose.moveTo(cx, cy - radius * 0.15)
+        nose.lineTo(cx - radius * 0.085, cy + radius * 0.105)
+        nose.lineTo(cx, cy + radius * 0.155)
+        nose.lineTo(cx + radius * 0.085, cy + radius * 0.105)
+        nose.closeSubpath()
+        p.setPen(QPen(QColor(*primary, 105), 0.9))
+        p.setBrush(QBrush(QColor(0, 5, 11, 95)))
+        p.drawPath(nose)
+
+        # Upper mouth plate stays fixed; the lower jaw drops with the speech envelope.
+        mouth_y = cy + radius * 0.285
+        mouth_w = radius * 0.285
+        phoneme = mouth_energy * (0.78 + 0.22 * abs(math.sin(self._energy_phase * 5.4)))
+        gap = radius * (0.005 + phoneme * 0.034)
+        if mode == "evil":
+            gap *= 0.82
+        upper = QPainterPath()
+        upper.moveTo(cx - mouth_w, mouth_y)
+        upper.lineTo(cx - mouth_w * 0.58, mouth_y - radius * 0.018)
+        upper.lineTo(cx + mouth_w * 0.58, mouth_y - radius * 0.018)
+        upper.lineTo(cx + mouth_w, mouth_y)
+        lower = QPainterPath()
+        lower.moveTo(cx - mouth_w, mouth_y + gap * 0.45)
+        lower.lineTo(cx - mouth_w * 0.58, mouth_y + gap + jaw_drop)
+        lower.lineTo(cx + mouth_w * 0.58, mouth_y + gap + jaw_drop)
+        lower.lineTo(cx + mouth_w, mouth_y + gap * 0.45)
+
+        aperture = QPainterPath()
+        aperture.moveTo(cx - mouth_w, mouth_y)
+        aperture.lineTo(cx - mouth_w * 0.58, mouth_y - radius * 0.018)
+        aperture.lineTo(cx + mouth_w * 0.58, mouth_y - radius * 0.018)
+        aperture.lineTo(cx + mouth_w, mouth_y)
+        aperture.lineTo(cx + mouth_w * 0.58, mouth_y + gap + jaw_drop)
+        aperture.lineTo(cx - mouth_w * 0.58, mouth_y + gap + jaw_drop)
+        aperture.closeSubpath()
+        # Voice reactor bloom behind the mouth aperture. It expands with the real PCM envelope.
+        mouth_bloom = max(mouth_energy, 0.10 if self.speaking else 0.0)
+        mouth_aura = QRadialGradient(QPointF(cx, mouth_y + (gap + jaw_drop) * 0.45), mouth_w * (1.25 + mouth_bloom * 0.35))
+        mouth_aura.setColorAt(0.0, QColor(245, 255, 255, 150 + int(mouth_bloom * 95)))
+        mouth_aura.setColorAt(0.24, QColor(*accent, 95 + int(mouth_bloom * 135)))
+        mouth_aura.setColorAt(0.62, QColor(*primary, 22 + int(mouth_bloom * 55)))
+        mouth_aura.setColorAt(1.0, QColor(*primary, 0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(mouth_aura))
+        p.drawEllipse(
+            QPointF(cx, mouth_y + (gap + jaw_drop) * 0.45),
+            mouth_w * (1.15 + mouth_bloom * 0.25),
+            radius * (0.035 + mouth_bloom * 0.052),
+        )
+
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor(0, 2, 6, 225)))
+        p.drawPath(aperture)
+        mouth_pen = QPen(QColor(225, 253, 255, 175 + int(mouth_energy * 80)), 1.3 + mouth_energy * 2.2)
+        p.setPen(mouth_pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawPath(upper); p.drawPath(lower)
+
+        # A continuous spectral trace articulates speech without resembling teeth.
+        voice_line = QPainterPath()
+        sample_count = 11
+        center_y = mouth_y + (gap + jaw_drop) * 0.48
+        for index in range(sample_count):
+            local = -1.0 + index * 2.0 / (sample_count - 1)
+            sample = self._waveform[(index * 5) % len(self._waveform)]
+            y = center_y - sample * min(gap * 0.34, radius * 0.018) * mouth_energy
+            point = QPointF(cx + local * mouth_w * 0.68, y)
+            if index == 0:
+                voice_line.moveTo(point)
+            else:
+                voice_line.lineTo(point)
+        p.setPen(QPen(QColor(235, 253, 255, 105 + int(mouth_energy * 145)), 0.8 + mouth_energy * 1.2))
+        p.drawPath(voice_line)
+
+        # Segmented jaw and chin shift down subtly as the AI speaks.
+        p.setPen(QPen(QColor(*primary, 118 + int(activity * 52)), 1.0))
+        p.drawLine(QPointF(cx - radius * 0.34, cy + radius * 0.30), QPointF(cx - radius * 0.21, cy + radius * 0.47 + jaw_drop))
+        p.drawLine(QPointF(cx + radius * 0.34, cy + radius * 0.30), QPointF(cx + radius * 0.21, cy + radius * 0.47 + jaw_drop))
+        p.drawLine(QPointF(cx - radius * 0.21, cy + radius * 0.47 + jaw_drop), QPointF(cx, cy + radius * 0.55 + jaw_drop))
+        p.drawLine(QPointF(cx + radius * 0.21, cy + radius * 0.47 + jaw_drop), QPointF(cx, cy + radius * 0.55 + jaw_drop))
+
+
+    def _draw_consciousness(self, p: QPainter, cx: float, cy: float, fw: float):
+        """Render the voice-reactive holographic consciousness from live geometry."""
+        radius = fw * 0.305 * self._scale
+        activity = max(self._voice_level, 0.16 if self.speaking else 0.0)
+        thinking = self.state in {"THINKING", "PROCESSING"}
+        state_gain = 1.28 if thinking else 1.0
+        breath = (math.sin(self._energy_phase) + 1.0) * 0.5
+        primary, accent = self._mode_palette()
+
+        # Volumetric aura follows the active identity palette.
+        aura_r = radius * (1.42 + activity * 0.20 + breath * 0.05)
+        aura = QRadialGradient(QPointF(cx, cy), aura_r)
+        aura.setColorAt(0.0, QColor(235, 253, 255, 165 + int(activity * 70)))
+        aura.setColorAt(0.16, QColor(*primary, 125 + int(activity * 80)))
+        aura.setColorAt(0.48, QColor(*primary, 42 + int(activity * 55)))
+        aura.setColorAt(0.78, QColor(*accent, 14 + int(activity * 20)))
+        aura.setColorAt(1.0, QColor(0, 0, 0, 0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(aura))
+        p.drawEllipse(QRectF(cx - aura_r, cy - aura_r, aura_r * 2, aura_r * 2))
+
+        # Dense, counter-rotating HUD machinery surrounds the consciousness.
+        # Broken sectors and radial contacts echo a projected Iron-Man-style interface.
+        p.save()
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        ring_specs = (
+            (1.34, 48, 4.4, 0.33, 58),
+            (1.25, 32, 6.8, -0.52, 94),
+            (1.15, 24, 9.5, 0.82, 128),
+            (1.04, 18, 13.0, -1.08, 158),
+            (0.88, 12, 19.5, 1.34, 120),
+        )
+        for ring_index, (scale, segments, span, speed, base_alpha) in enumerate(ring_specs):
+            rr = radius * scale
+            rect = QRectF(cx - rr, cy - rr, rr * 2, rr * 2)
+            offset = self._avatar_angle * speed + ring_index * 17.0
+            for segment in range(segments):
+                if (segment + ring_index * 2) % (7 if ring_index < 2 else 9) == 0:
+                    continue
+                pulse = max(0.0, math.sin(scan_phase := self._energy_phase * 2.0 + segment * 0.41))
+                alpha = min(245, int(base_alpha + activity * 52 + pulse * 28))
+                color = QColor(*accent, alpha) if segment % 11 == 0 else QColor(*primary, alpha)
+                width = (2.4 if ring_index == 2 and segment % 4 == 0 else 0.85 + ring_index * 0.14)
+                p.setPen(QPen(color, width))
+                start = offset + segment * (360.0 / segments)
+                p.drawArc(rect, int(start * 16), int(span * 16))
+
+        # Mechanical blocks sit on the middle disk and rotate as one assembly.
+        p.translate(cx, cy)
+        p.rotate(-self._avatar_angle * 0.24)
+        block_r = radius * 1.205
+        for index in range(24):
+            if index % 6 == 4:
+                continue
+            angle = index * 15.0
+            p.save()
+            p.rotate(angle)
+            width = radius * (0.105 if index % 3 == 0 else 0.065)
+            height = max(2.0, radius * (0.024 if index % 2 else 0.038))
+            p.setPen(QPen(QColor(*primary, 90 + int(activity * 65)), 0.7))
+            p.setBrush(QBrush(QColor(*primary, 20 + int(activity * 18))))
+            p.drawRoundedRect(QRectF(block_r - width * 0.5, -height * 0.5, width, height), 1.2, 1.2)
+            p.restore()
+
+        # Long circuit spokes flash from speech bands toward the inner reactor.
+        for index in range(16):
+            angle = index * math.pi / 8 + math.radians(self._avatar_angle * 0.18)
+            band = self._voice_bands[index % len(self._voice_bands)]
+            inner = radius * (0.91 - band * 0.06)
+            outer = radius * (1.10 + band * 0.09)
+            p.setPen(QPen(QColor(*accent if index % 4 == 0 else primary, 54 + int(band * 145 + activity * 35)), 0.75 + band))
+            p.drawLine(
+                QPointF(math.cos(angle) * inner, math.sin(angle) * inner),
+                QPointF(math.cos(angle) * outer, math.sin(angle) * outer),
+            )
+        p.restore()
+
+        # Dark glass underlay gives the face and telemetry enough contrast.
+        glass_r = radius * 0.80
+        glass = QRadialGradient(QPointF(cx, cy), glass_r)
+        glass.setColorAt(0.0, QColor(0, 4, 9, 205))
+        glass.setColorAt(0.70, QColor(0, 8, 15, 152))
+        glass.setColorAt(1.0, QColor(*primary, 8))
+        p.setPen(QPen(QColor(*primary, 55), 0.8))
+        p.setBrush(QBrush(glass))
+        p.drawEllipse(QRectF(cx - glass_r, cy - glass_r, glass_r * 2, glass_r * 2))
+
+        points = self._project_consciousness(cx, cy, radius)
+        old_points = self._project_consciousness(cx, cy, radius, self._mesh_y - (2.8 + activity * 4.0))
+
+        # Neural links form the body instead of a bitmap shell.
+        for edge_index, (a, b) in enumerate(self._sphere_edges):
+            axp, ayp, az, _ = points[a]
+            bxp, byp, bz, _ = points[b]
+            depth = max(0.0, min(1.0, ((az + bz) * 0.25) + 0.5))
+            band = self._voice_bands[edge_index % len(self._voice_bands)]
+            pulse = max(0.0, math.sin(self._energy_phase * 2.7 + edge_index * 0.37))
+            alpha = int((24 + depth * 92 + band * 90 + pulse * activity * 80) * state_gain)
+            alpha = max(0, min(230, alpha))
+            if edge_index % 9 == 0:
+                color = QColor(*accent, max(18, alpha // 2))
+            else:
+                color = QColor(*primary, alpha)
+            p.setPen(QPen(color, 0.7 + band * 1.5 + activity * 0.35))
+            p.drawLine(QPointF(axp, ayp), QPointF(bxp, byp))
+
+        # Moving sparks leave short 3D trails, making rotation readable.
+        for index, ((x, y, z, phase), (old_x, old_y, _, _)) in enumerate(zip(points, old_points)):
+            depth = max(0.0, min(1.0, (z + 1.0) * 0.5))
+            wave = abs(self._waveform[index % len(self._waveform)])
+            pulse = max(0.0, math.sin(phase + self._energy_phase * (3.1 if thinking else 1.6)))
+            alpha = int(55 + depth * 170 + pulse * 40 * state_gain)
+            size = 0.8 + depth * 1.7 + wave * 3.2 + activity * 0.8
+            p.setPen(QPen(QColor(*primary, max(20, alpha // 3)), max(0.6, size * 0.52)))
+            p.drawLine(QPointF(old_x, old_y), QPointF(x, y))
+            node_color = QColor(255, 245, 218, min(255, alpha)) if z > 0 else QColor(*primary, min(190, alpha))
+            if index % 17 == 0:
+                node_color = QColor(*accent, min(235, alpha))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(node_color))
+            p.drawEllipse(QPointF(x, y), size, size)
+
+        # Voice waveform wraps around the sphere as a living corona.
+        wave_path = QPainterPath()
+        wave_count = 96
+        for index in range(wave_count + 1):
+            angle = (index / wave_count) * math.pi * 2 - math.pi / 2
+            sample = abs(self._waveform[index % len(self._waveform)])
+            synthetic = (math.sin(angle * 7 + self._energy_phase * 3) + 1.0) * 0.5
+            spike = (sample * activity + synthetic * (0.025 if self.speaking else 0.006)) * radius * 0.28
+            crown_r = radius * 1.04 + spike
+            x = cx + math.cos(angle) * crown_r
+            y = cy + math.sin(angle) * crown_r
+            if index == 0:
+                wave_path.moveTo(x, y)
+            else:
+                wave_path.lineTo(x, y)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(*primary, 45 + int(activity * 95)), 4.5))
+        p.drawPath(wave_path)
+        p.setPen(QPen(QColor(*primary, 145 + int(activity * 100)), 1.1 + activity * 1.7))
+        p.drawPath(wave_path)
+
+        # Counter-rotating energy orbits with bright carriers.
+        orbit_specs = (
+            (1.18, 0.34, 18.0, 1.0, QColor(*primary, 205)),
+            (1.10, 0.48, -42.0, -0.72, QColor(*accent, 175)),
+            (0.90, 0.29, 71.0, 1.45, QColor(*primary, 190)),
+        )
+        for orbit_index, (rx_mul, ry_mul, rotation, speed, color) in enumerate(orbit_specs):
+            p.save()
+            p.translate(cx, cy)
+            p.rotate(rotation + math.sin(self._energy_phase + orbit_index) * 6.0)
+            rx, ry = radius * rx_mul, radius * ry_mul
+            rect = QRectF(-rx, -ry, rx * 2, ry * 2)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(color, 1.0 + activity * 1.1))
+            start = (self._avatar_angle * speed + orbit_index * 110) % 360
+            p.drawArc(rect, int(start * 16), int((205 + activity * 85) * 16))
+            carrier_angle = math.radians(start + 205 + activity * 85)
+            carrier = QPointF(math.cos(carrier_angle) * rx, -math.sin(carrier_angle) * ry)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(color))
+            carrier_size = 2.5 + activity * 4.2
+            p.drawEllipse(carrier, carrier_size, carrier_size)
+            p.restore()
+
+        # Scanning planes cut through the volume.
+        p.save()
+        clip = QPainterPath()
+        clip.addEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
+        p.setClipPath(clip)
+        scan_offset = (self._tick * (3 if thinking else 1.25)) % max(1.0, radius * 2)
+        for line_index in range(7):
+            y = cy - radius + ((scan_offset + line_index * radius * 0.34) % (radius * 2))
+            alpha = 25 + int(activity * 45)
+            p.setPen(QPen(QColor(*primary, alpha), 0.7))
+            p.drawLine(QPointF(cx - radius, y), QPointF(cx + radius, y))
+        p.restore()
+
+        # A smoked holographic visor quiets the neural mesh where the face resolves.
+        visor = QRadialGradient(QPointF(cx, cy + radius * 0.02), radius * 0.72)
+        visor.setColorAt(0.0, QColor(0, 3, 8, 218))
+        visor.setColorAt(0.64, QColor(0, 5, 11, 182))
+        visor.setColorAt(1.0, QColor(0, 8, 15, 12))
+        p.setPen(QPen(QColor(*primary, 38 + int(activity * 22)), 0.7))
+        p.setBrush(QBrush(visor))
+        p.drawEllipse(QRectF(cx - radius * 0.69, cy - radius * 0.53, radius * 1.38, radius * 1.18))
+
+        # Sharp helmet crest replaces the generic forehead orb.
+        crest_y = cy - radius * 0.455
+        crest = QPainterPath()
+        crest.moveTo(cx, crest_y - radius * 0.095)
+        crest.lineTo(cx - radius * 0.050, crest_y + radius * 0.018)
+        crest.lineTo(cx, crest_y + radius * 0.075)
+        crest.lineTo(cx + radius * 0.050, crest_y + radius * 0.018)
+        crest.closeSubpath()
+        crest_glow = QLinearGradient(QPointF(cx, crest_y - radius * 0.10), QPointF(cx, crest_y + radius * 0.08))
+        crest_glow.setColorAt(0.0, QColor(248, 255, 255, 245))
+        crest_glow.setColorAt(0.38, QColor(*accent, 220))
+        crest_glow.setColorAt(1.0, QColor(*primary, 35))
+        p.setPen(QPen(QColor(*accent, 210), 1.1))
+        p.setBrush(QBrush(crest_glow))
+        p.drawPath(crest)
+        self._draw_armored_face(p, cx, cy, radius, activity, thinking)
+
     def _step(self):
+        if getattr(self, "_reactor", None) is not None:
+            self._reactor.set_status(state=self.state, speaking=self.speaking,
+                                     muted=self.muted, mode=self.visual_mode)
+            return
         self._tick += 1
+        self._voice_level += (self._voice_target - self._voice_level) * 0.34
+        self._voice_target *= 0.82
+        mouth_speed = 0.72 if self._mouth_target > self._mouth_level else 0.31
+        self._mouth_level += (self._mouth_target - self._mouth_level) * mouth_speed
+        self._mouth_target *= 0.68 if self.speaking else 0.48
+        self._mouth_impulse *= 0.76
+        for index in range(len(self._waveform)):
+            target = self._waveform_target[index]
+            self._waveform[index] += (target - self._waveform[index]) * 0.42
+            self._waveform_target[index] *= 0.78
+        self._energy_phase = (self._energy_phase + 0.075 + self._voice_level * 0.22) % (math.pi * 2)
+        turn_speed = 0.18
+        if self.state in {"THINKING", "PROCESSING"}:
+            turn_speed = 1.35
+        elif self.speaking:
+            turn_speed = 0.65 + self._voice_level * 1.8
+        self._avatar_angle = (self._avatar_angle + turn_speed) % 360
+        mesh_speed = 0.22
+        if self.state in {"THINKING", "PROCESSING"}:
+            mesh_speed = 1.05
+        elif self.speaking:
+            mesh_speed = 0.48 + self._voice_level * 1.35
+        mesh_speed *= {"evil": 1.18, "cute": 0.78, "sentinel": 1.38}.get(self.visual_mode, 1.0)
+        self._mesh_y = (self._mesh_y + mesh_speed) % 360
         now = time.time()
         if now - self._last_t > (0.12 if self.speaking else 0.5):
             if self.speaking:
-                self._tgt_scale = random.uniform(1.06, 1.14)
-                self._tgt_halo  = random.uniform(145, 190)
+                self._tgt_scale = 1.035 + self._voice_level * 0.13
+                self._tgt_halo  = 120 + self._voice_level * 95
             elif self.muted:
                 self._tgt_scale = random.uniform(0.998, 1.002)
                 self._tgt_halo  = random.uniform(15, 28)
+            elif self.state in {"THINKING", "PROCESSING"}:
+                self._tgt_scale = 1.025 + 0.012 * math.sin(self._energy_phase)
+                self._tgt_halo = 105 + 20 * math.sin(self._energy_phase)
             else:
-                self._tgt_scale = random.uniform(1.001, 1.008)
-                self._tgt_halo  = random.uniform(48, 68)
+                self._tgt_scale = 1.008 + self._voice_level * 0.045
+                self._tgt_halo  = random.uniform(62, 82) + self._voice_level * 55
             self._last_t = now
 
         sp = 0.38 if self.speaking else 0.15
@@ -327,14 +1453,19 @@ class HudCanvas(QWidget):
         if len(self._pulses) < 3 and random.random() < (0.07 if self.speaking else 0.025):
             self._pulses.append(0.0)
 
-        if self.speaking and random.random() < 0.28:
+        particle_chance = 0.035
+        if self.state in {"THINKING", "PROCESSING"}:
+            particle_chance = 0.16
+        elif self.speaking:
+            particle_chance = 0.22 + self._voice_level * 0.42
+        if random.random() < particle_chance:
             cx, cy = self.width() / 2, self.height() / 2
             ang = random.uniform(0, 2 * math.pi)
-            r_s = fw * 0.28
+            r_s = fw * random.uniform(0.20, 0.31)
             self._particles.append([
                 cx + math.cos(ang) * r_s, cy + math.sin(ang) * r_s,
-                math.cos(ang) * random.uniform(0.9, 2.4),
-                math.sin(ang) * random.uniform(0.9, 2.4) - 0.4, 1.0,
+                math.cos(ang) * random.uniform(0.5, 1.6) * (1 + self._voice_level),
+                math.sin(ang) * random.uniform(0.5, 1.6) * (1 + self._voice_level) - 0.25, 1.0,
             ])
         self._particles = [
             [p[0]+p[2], p[1]+p[3], p[2]*0.97, p[3]*0.97, p[4]-0.028]
@@ -348,6 +1479,11 @@ class HudCanvas(QWidget):
         self.update()
 
     def paintEvent(self, _):
+        if getattr(self, "_reactor", None) is not None:
+            painter = QPainter(self)
+            painter.fillRect(self.rect(), QColor("#02080d"))
+            painter.end()
+            return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), qcol(C.BG))
@@ -435,15 +1571,22 @@ class HudCanvas(QWidget):
             p.drawLine(QPointF(bx, by), QPointF(bx + dx * bl, by))
             p.drawLine(QPointF(bx, by), QPointF(bx, by + dy * bl))
 
-        # face
-        if self._face_px:
-            fsz    = int(fw * 0.62 * self._scale)
+        # The main avatar is generated live from geometry and PCM audio.
+        if self._avatar_mode:
+            self._draw_consciousness(p, cx, cy, fw)
+        elif self._face_px:
+            voice_bloom = self._voice_level if self.speaking else self._voice_level * 0.35
+            breath = (math.sin(self._energy_phase) + 1.0) * 0.5
+            fsz = int(fw * 0.62 * self._scale)
             scaled = self._face_px.scaled(
                 fsz, fsz,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
-            p.drawPixmap(int(cx - fsz / 2), int(cy - fsz / 2), scaled)
+            p.save()
+            p.translate(cx, cy)
+            p.drawPixmap(int(-fsz / 2), int(-fsz / 2), scaled)
+            p.restore()
         else:
             orb_r = int(fw * 0.27 * self._scale)
             oc    = (200, 0, 50) if self.muted else (0, 60, 110)
@@ -480,7 +1623,9 @@ class HudCanvas(QWidget):
             txt, col = f"{sym}  PROCESSING", qcol(C.ACC2)
         elif self.state == "LISTENING":
             sym = "●" if self._blink else "○"
-            txt, col = f"{sym}  ONLINE",     qcol(C.GREEN)
+            mode_label = {"evil": "EVIL", "cute": "ANJO", "sentinel": "SENTINEL"}.get(self.visual_mode, "ONLINE")
+            primary, _ = self._mode_palette()
+            txt, col = f"{sym}  {mode_label}", QColor(*primary) if self.visual_mode != "normal" else qcol(C.GREEN)
         else:
             sym = "●" if self._blink else "○"
             txt, col = f"{sym}  {self.state}", qcol(C.PRI)
@@ -579,7 +1724,7 @@ class VoiceLabCanvas(QWidget):
         }
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._tick)
-        self._tmr.start(50)
+        self._tmr.start(80)  # Voice panel does not need 20 redraws/second
 
     def _blank_channel(self) -> dict:
         return {
@@ -910,7 +2055,7 @@ class LogWidget(QTextEdit):
         elif tl.startswith("file:"):   self._tag = "file"
         elif "err" in tl:              self._tag = "err"
         else:                          self._tag = "sys"
-        self._tmr.start(6)
+        self._tmr.start(12)  # Keep the typing effect without a 166 FPS timer
 
     def _step(self):
         if self._pos < len(self._text):
@@ -1354,11 +2499,11 @@ class NexusLabWindow(QMainWindow):
                 ),
                 self._module_card(
                     "08",
-                    "Visao e camera",
-                    "camera, braille, desenho e leitura de tela",
+                    "Vision Labs",
+                    "ensina pessoas e objetos pela camera local",
                     C.ACC,
                     [
-                        ("MAO", "abre modo camera mao"),
+                        ("ABRIR LAB", "__open_vision_lab__"),
                         ("BRAILLE", "abre modo braille"),
                         ("DESENHO", "abre modo desenho"),
                     ],
@@ -1372,6 +2517,7 @@ class NexusLabWindow(QMainWindow):
                     "#b06cff",
                     [
                         ("MAPA", "__open_neural_map__"),
+                        ("CÉREBRO 3D", "__open_brain_3d__"),
                         ("STATS", "estatisticas do cerebro neural"),
                         ("ESTUDO", "inicia modo estudo ciclico"),
                     ],
@@ -1578,6 +2724,77 @@ class NexusLabWindow(QMainWindow):
         return panel
 
 
+class ModelCard(QPushButton):
+    """Compact selectable model card used by the main Jarvis console."""
+
+    clicked_tier = pyqtSignal(str)
+
+    def __init__(self, tier: str, title: str, model: str, effort: str, think: bool, parent=None):
+        super().__init__(parent)
+        self.tier = tier
+        self.title = title
+        self.model = model
+        self.effort = effort
+        self.think = think
+        self._active = False
+        self._phase = "standby"
+        self._resident = False
+        self.setMinimumWidth(108)
+        self.setFixedHeight(70)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self.clicked.connect(lambda: self.clicked_tier.emit(self.tier))
+        self.setToolTip(f"Ativar {title}: {model}, esforço {effort}, think={'on' if think else 'off'}")
+        self.apply_state(False, "standby", False)
+
+    def apply_state(self, active: bool, phase: str, resident: bool, pulse: bool = False):
+        self._active = bool(active)
+        self._phase = str(phase or "standby")
+        self._resident = bool(resident)
+        labels = {
+            "standby": "STANDBY",
+            "ready": "READY",
+            "selected": "READY",
+            "switching": "ROUTING",
+            "loading": "LOADING",
+            "thinking": "THINKING",
+            "responding": "RESPONDING",
+            "done": "COMPLETE",
+            "error": "ERROR",
+        }
+        phase_label = labels.get(self._phase, self._phase.upper())
+        think_label = "THINK ON" if self.think else "THINK OFF"
+        ram_label = "IN RAM" if self._resident else "RAM FREE"
+        marker = "●" if self._active else "○"
+        self.setText(
+            f"{marker} {self.title}\n"
+            f"{self.model}\n"
+            f"{self.effort.upper()} · {think_label}\n"
+            f"{phase_label} · {ram_label}"
+        )
+
+        active_phase = self._phase in {"switching", "loading", "thinking", "responding"}
+        if self._phase == "error":
+            color, bg, border = C.RED, "#160008", C.RED
+        elif active_phase:
+            color = C.ACC2 if pulse else C.PRI
+            bg, border = "#071a22", color
+        elif self._active:
+            color, bg, border = C.GREEN, "#00170e", C.GREEN_D
+        else:
+            color, bg, border = C.TEXT_DIM, C.PANEL2, C.BORDER
+        self.setStyleSheet(f"""
+            QPushButton {{
+                color: {color}; background: {bg};
+                border: 1px solid {border}; border-radius: 5px;
+                padding: 4px 6px; text-align: left;
+            }}
+            QPushButton:hover {{
+                color: {C.WHITE}; border: 1px solid {C.PRI}; background: {C.PRI_GHO};
+            }}
+        """)
+
+
 class MainWindow(QMainWindow):
     _log_sig   = pyqtSignal(str)
     _state_sig = pyqtSignal(str)
@@ -1585,10 +2802,18 @@ class MainWindow(QMainWindow):
     _voice_sig = pyqtSignal(dict)
     _temp_mute_sig = pyqtSignal(bool)
     _lab_sig = pyqtSignal(str)
+    _vision_lab_sig = pyqtSignal(dict)
+    _model_sig = pyqtSignal(dict)
+    _avatar_mode_sig = pyqtSignal(str)
+    _avatar_control_sig = pyqtSignal(dict)
+    _libras_sig = pyqtSignal(bool)
+    _music_sig = pyqtSignal(bool)
+    _brain3d_sig = pyqtSignal()
+    _brain_activity_sig = pyqtSignal(dict)
 
     def __init__(self, face_path: str):
         super().__init__()
-        self.setWindowTitle("J.A.R.V.I.S — MARK XLI")
+        self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(_MIN_W, _MIN_H)
         self.resize(_DEFAULT_W, _DEFAULT_H)
 
@@ -1599,10 +2824,12 @@ class MainWindow(QMainWindow):
         )
 
         self.on_text_command  = None
+        self.on_model_select  = None
         self._muted           = False
         self._wake_muted      = False
         self._current_file: str | None = None
         self._lab_window: NexusLabWindow | None = None
+        self._vision_lab_window = None
 
         central = QWidget()
         central.setStyleSheet(f"background: {C.BG};")
@@ -1620,9 +2847,17 @@ class MainWindow(QMainWindow):
         self._left_panel = self._build_left_panel()
         body.addWidget(self._left_panel, stretch=0)
 
+        center = QWidget()
+        center.setStyleSheet(f"background: {C.BG};")
+        center_lay = QVBoxLayout(center)
+        center_lay.setContentsMargins(0, 0, 0, 0)
+        center_lay.setSpacing(0)
+
         self.hud = HudCanvas(face_path)
         self.hud.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        body.addWidget(self.hud, stretch=5)
+        center_lay.addWidget(self.hud, stretch=1)
+        center_lay.addWidget(self._build_model_panel(), stretch=0)
+        body.addWidget(center, stretch=5)
 
         self._right_panel = self._build_right_panel()
         body.addWidget(self._right_panel, stretch=0)
@@ -1647,6 +2882,16 @@ class MainWindow(QMainWindow):
         self._voice_sig.connect(self._update_voice_panel)
         self._temp_mute_sig.connect(self._set_temporary_mute)
         self._lab_sig.connect(self._handle_lab_signal)
+        self._vision_lab_sig.connect(self._handle_vision_lab_signal)
+        self._model_sig.connect(self._apply_model_status)
+        self._avatar_mode_sig.connect(self.hud.set_visual_mode)
+        self._avatar_control_sig.connect(self._control_avatar_3d)
+        self._libras_sig.connect(self._set_libras_mode)
+        self._music_sig.connect(self._set_music_mode)
+        self._brain3d_sig.connect(self._open_brain_3d)
+        self._brain_activity_sig.connect(self._apply_brain_activity)
+        if self.hud._reactor is not None:
+            self.hud._reactor.textSubmitted.connect(self._submit_libras_text)
 
         self._overlay: SetupOverlay | None = None
         self._ready = self._check_config()
@@ -1659,6 +2904,8 @@ class MainWindow(QMainWindow):
         sc_full.activated.connect(self._toggle_fullscreen)
         sc_neural = QShortcut(QKeySequence("F3"), self)
         sc_neural.activated.connect(self._open_neural_map)
+        sc_brain = QShortcut(QKeySequence("Ctrl+F3"), self)
+        sc_brain.activated.connect(self._open_brain_3d)
         sc_lab = QShortcut(QKeySequence("F2"), self)
         sc_lab.activated.connect(lambda: self._handle_lab_signal("toggle"))
 
@@ -1689,12 +2936,47 @@ class MainWindow(QMainWindow):
         self._lab_window.activateWindow()
         self._log.append_log("SYS: Nexus Lab opened.")
 
+    def _handle_vision_lab_signal(self, payload: dict | None = None):
+        payload = payload or {}
+        action = str(payload.get("action") or "open").lower().strip()
+        if action in {"close", "fechar"}:
+            if self._vision_lab_window is not None:
+                self._vision_lab_window.close()
+                self._log.append_log("SYS: Vision Labs closed.")
+            return
+        if action in {"toggle", "alternar"} and self._vision_lab_window is not None and self._vision_lab_window.isVisible():
+            self._vision_lab_window.close()
+            self._log.append_log("SYS: Vision Labs closed.")
+            return
+        try:
+            if self._vision_lab_window is None:
+                from actions.vision_lab_ui import VisionLabWindow
+
+                self._vision_lab_window = VisionLabWindow(self)
+            self._vision_lab_window.configure(
+                kind=str(payload.get("kind") or ""),
+                label=str(payload.get("label") or ""),
+            )
+            self._vision_lab_window.show()
+            self._vision_lab_window.raise_()
+            self._vision_lab_window.activateWindow()
+            QTimer.singleShot(100, self._vision_lab_window.start_camera)
+            self._log.append_log("SYS: Vision Labs opened.")
+        except Exception as exc:
+            self._log.append_log(f"ERR: Vision Labs could not open: {exc}")
+
     def _dispatch_lab_command(self, command: str):
         command = (command or "").strip()
         if not command:
             return
         if command == "__open_neural_map__":
             self._open_neural_map()
+            return
+        if command == "__open_brain_3d__":
+            self._open_brain_3d()
+            return
+        if command == "__open_vision_lab__":
+            self._handle_vision_lab_signal({"action": "open"})
             return
         self._log.append_log(f"LAB: {command}")
         if self.on_text_command:
@@ -1715,6 +2997,72 @@ class MainWindow(QMainWindow):
                 print(f"[JARVIS] Falha ao sincronizar mapa neural: {exc}")
 
         threading.Thread(target=sync_and_open, daemon=True, name="JarvisNeuralMapSync").start()
+
+    def _apply_brain_activity(self, payload):
+        if not isinstance(payload, dict):
+            return
+        current = getattr(self, "_brain_activity", {})
+        if int(payload.get("revision", 0)) <= int(current.get("revision", 0)):
+            return
+        self._brain_activity = dict(payload)
+        if payload.get("active") and getattr(self, "_brain3d_dialog", None) is None:
+            self._open_brain_3d()
+        self._send_brain_activity()
+
+    def _send_brain_activity(self):
+        import json
+        view = getattr(self, "_brain3d_view", None)
+        payload = getattr(self, "_brain_activity", None)
+        if view is not None and payload:
+            view.page().runJavaScript("window.JarvisBrain?.readActivity(" + json.dumps(payload) + ");")
+
+    def _open_brain_3d(self):
+        """Open the current local brain inside the UI, reusing a single dialog."""
+        from pathlib import Path
+
+        html_path = Path(__file__).resolve().parent / "memory_brain_3d.html"
+        if not html_path.exists():
+            self._log.append_log("ERR: memory_brain_3d.html não encontrado.")
+            return
+        try:
+            from PyQt6.QtCore import QUrl
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout
+            from PyQt6.QtWebEngineWidgets import QWebEngineView
+        except Exception as exc:
+            import webbrowser
+            webbrowser.open(html_path.resolve().as_uri())
+            self._log.append_log(f"SYS: WebEngine indisponível ({exc}) — cérebro 3D no navegador.")
+            return
+        try:
+            if getattr(self, "_brain3d_dialog", None) is not None:
+                self._brain3d_dialog.showNormal()
+                self._brain3d_dialog.raise_()
+                self._brain3d_dialog.activateWindow()
+                return
+            self._log.append_log("SYS: Abrindo cérebro 3D dentro da UI...")
+            dlg = QDialog(self)
+            dlg.setWindowTitle("JARVIS — Cérebro de memória 3D")
+            dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            dlg.resize(1120, 760)
+            layout = QVBoxLayout(dlg)
+            layout.setContentsMargins(0, 0, 0, 0)
+            view = QWebEngineView(dlg)
+            view.loadFinished.connect(lambda ok: self._send_brain_activity() if ok else None)
+            view.setUrl(QUrl.fromLocalFile(str(html_path.resolve())))
+            layout.addWidget(view)
+            def release_brain(_result):
+                if getattr(self, "_brain3d_dialog", None) is dlg:
+                    self._brain3d_dialog = None
+                    self._brain3d_view = None
+            dlg.finished.connect(release_brain)
+            self._brain3d_dialog = dlg
+            self._brain3d_view = view  # segura referência contra GC
+            dlg.show()
+            self._log.append_log("SYS: Cérebro 3D aberto dentro da UI.")
+        except Exception as exc:
+            print(f"[JARVIS] Falha ao abrir cérebro 3D: {exc}")
+            self._log.append_log(f"ERR: Cérebro 3D falhou: {exc}")
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._overlay and self._overlay.isVisible():
@@ -1725,6 +3073,17 @@ class MainWindow(QMainWindow):
                 (cw.height() - oh) // 2,
                 ow, oh,
             )
+
+    def _control_avatar_3d(self, request):
+        reply = request["reply"]
+        def done(result):
+            if not reply.done():
+                reply.set_result(result or {"ok": False, "message": "O modelo 3D não respondeu."})
+        reactor = getattr(self.hud, "_reactor", None)
+        if reactor is None:
+            done({"ok": False, "message": "O visual 3D está indisponível."})
+            return
+        reactor.control_model(request["command"], done)
 
     def _update_metrics(self):
         snap = _metrics.snapshot()
@@ -1790,7 +3149,12 @@ class MainWindow(QMainWindow):
             l.setStyleSheet(f"color: {color}; background: transparent;")
             return l
 
-        lay.addWidget(_badge("MARK XLI", C.PRI_DIM))
+        lay.addWidget(_badge(MARK_NAME, C.PRI_DIM))
+        voice_button = QPushButton("VOZ PT-BR")
+        voice_button.setToolTip("Configurar Jarvis UCM PT-BR no Fish Audio")
+        voice_button.setStyleSheet(f"color:{C.PRI}; background:{C.PANEL2}; padding:6px; border:1px solid {C.BORDER}; border-radius:4px;")
+        voice_button.clicked.connect(self._open_fish_voice_settings)
+        lay.addWidget(voice_button)
         lay.addStretch()
 
         mid = QVBoxLayout(); mid.setSpacing(1)
@@ -1821,9 +3185,142 @@ class MainWindow(QMainWindow):
         lay.addLayout(right_col)
         return w
 
+    def _open_fish_voice_settings(self):
+        from actions.fish_voice_settings import FishVoiceDialog
+        if not getattr(self, "_fish_voice_dialog", None):
+            self._fish_voice_dialog = FishVoiceDialog(self)
+        self._fish_voice_dialog.show()
+        self._fish_voice_dialog.raise_()
+        self._fish_voice_dialog.activateWindow()
+
     def _tick_clock(self):
         self._clock_lbl.setText(time.strftime("%H:%M:%S"))
         self._date_lbl.setText(time.strftime("%a %d %b %Y"))
+
+    def _build_model_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setFixedHeight(132)
+        panel.setStyleSheet(
+            f"background: {C.DARK}; border-top: 1px solid {C.BORDER_B};"
+        )
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(10, 6, 10, 7)
+        lay.setSpacing(4)
+
+        top = QHBoxLayout()
+        title = QLabel("◈ LOCAL MODEL ARRAY")
+        title.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        title.setStyleSheet(f"color: {C.PRI}; background: transparent; border: none;")
+        top.addWidget(title)
+        top.addStretch()
+        self._model_route_lbl = QLabel("ROUTE --")
+        self._model_route_lbl.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        self._model_route_lbl.setStyleSheet(f"color: {C.GREEN}; background: transparent; border: none;")
+        top.addWidget(self._model_route_lbl)
+        lay.addLayout(top)
+
+        cards = QHBoxLayout()
+        cards.setSpacing(5)
+        specs = (
+            ("normal", "NORMAL", "LLAMA 3.2 · 1B", "low", False),
+            ("fast", "RÁPIDO", "QWEN 3.5 · 4B", "medium", True),
+            ("ultra", "ULTRA", "GEMMA 4 · 8B", "high", True),
+        )
+        self._model_cards: dict[str, ModelCard] = {}
+        for tier, title_text, model, effort, think in specs:
+            card = ModelCard(tier, title_text, model, effort, think)
+            card.clicked_tier.connect(self._select_model_tier)
+            self._model_cards[tier] = card
+            cards.addWidget(card, stretch=1)
+        lay.addLayout(cards)
+
+        self._model_think_lbl = QLabel("THINK MONITOR // aguardando o modelo local")
+        self._model_think_lbl.setFixedHeight(20)
+        self._model_think_lbl.setFont(QFont("Courier New", 7))
+        self._model_think_lbl.setStyleSheet(
+            f"color: {C.TEXT_MED}; background: {C.PANEL}; border: 1px solid {C.BORDER}; "
+            "border-radius: 3px; padding: 2px 6px;"
+        )
+        self._model_think_lbl.setToolTip("Exibe o trecho mais recente do raciocínio devolvido pelo Ollama.")
+        lay.addWidget(self._model_think_lbl)
+
+        self._active_model_tier = _initial_model_tier()
+        self._model_phase = "ready"
+        self._model_resident = False
+        self._model_pulse = False
+        self._model_pulse_tmr = QTimer(self)
+        self._model_pulse_tmr.timeout.connect(self._pulse_model_panel)
+        self._model_pulse_tmr.start(420)
+        self._refresh_model_cards()
+        return panel
+
+    def _select_model_tier(self, tier: str):
+        if tier not in self._model_cards:
+            return
+        self._active_model_tier = tier
+        self._model_phase = "switching"
+        self._model_resident = False
+        self._model_think_lbl.setText(f"ROUTER // ativando {tier.upper()} para chat e pesquisa")
+        self._refresh_model_cards()
+        if self.on_model_select:
+            threading.Thread(target=self.on_model_select, args=(tier,), daemon=True).start()
+
+    def _pulse_model_panel(self):
+        if self._model_phase not in {"switching", "loading", "thinking", "responding"}:
+            return
+        self._model_pulse = not self._model_pulse
+        self._refresh_model_cards()
+
+    def _refresh_model_cards(self):
+        for tier, card in self._model_cards.items():
+            phase = self._model_phase if tier == self._active_model_tier else "standby"
+            resident = self._model_resident if tier == self._active_model_tier else False
+            card.apply_state(tier == self._active_model_tier, phase, resident, self._model_pulse)
+        self._model_route_lbl.setText(f"ROUTE {self._active_model_tier.upper()}")
+
+    def _apply_model_status(self, payload: dict):
+        tier = str(payload.get("tier") or self._active_model_tier or "normal").lower()
+        if tier not in self._model_cards:
+            tier = "normal"
+        phase = str(payload.get("phase") or "ready").lower()
+        self._active_model_tier = tier
+        self._model_phase = phase
+        self._model_resident = bool(payload.get("resident", phase in {"thinking", "responding"}))
+
+        thought = " ".join(str(payload.get("thinking_preview") or "").split())
+        response = " ".join(str(payload.get("response_preview") or "").split())
+        error = " ".join(str(payload.get("error") or "").split())
+        think_chars = int(payload.get("thinking_chars") or 0)
+        if error:
+            monitor = f"ERROR // {error}"
+        elif thought:
+            monitor = f"THINK {think_chars}c // {thought[-240:]}"
+        elif phase == "loading":
+            monitor = f"LOAD // preparando {tier.upper()} na CPU"
+        elif phase == "thinking":
+            monitor = f"THINK // {tier.upper()} analisando..."
+        elif phase == "responding" and response:
+            monitor = f"OUTPUT // {response[-240:]}"
+        elif phase == "done":
+            monitor = f"DONE // {tier.upper()} liberado da RAM"
+        elif phase in {"ready", "selected"}:
+            monitor = f"READY // {tier.upper()} selecionado · carregamento sob demanda"
+        else:
+            monitor = f"{phase.upper()} // {tier.upper()}"
+        self._model_think_lbl.setText(monitor)
+        self._model_think_lbl.setToolTip(monitor)
+        self._refresh_model_cards()
+
+        if phase == "done":
+            expected_tier = tier
+            QTimer.singleShot(1800, lambda: self._settle_model_status(expected_tier))
+
+    def _settle_model_status(self, tier: str):
+        if self._active_model_tier != tier or self._model_phase != "done":
+            return
+        self._model_phase = "ready"
+        self._model_resident = False
+        self._refresh_model_cards()
 
     def _build_left_panel(self) -> QWidget:
         w = QWidget()
@@ -1882,7 +3379,7 @@ class MainWindow(QMainWindow):
         for txt, col in [
             ("AI CORE\nACTIVE",     C.GREEN),
             ("SEC\nCLEARED",        C.PRI),
-            ("PROTOCOL\nXXXVIII",   C.TEXT_DIM),
+            (f"PROTOCOLO\n{MARK_NAME.removeprefix('MARK ')}", C.TEXT_DIM),
         ]:
             lbl = QLabel(txt)
             lbl.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
@@ -2007,7 +3504,19 @@ class MainWindow(QMainWindow):
             }}
         """)
         nm_btn.clicked.connect(self._open_neural_map)
-        lay.addWidget(nm_btn)
+        brain_btn = QPushButton("CÉREBRO 3D")
+        brain_btn.setObjectName("openBrain3DButton")
+        brain_btn.setFixedHeight(26)
+        brain_btn.setFont(QFont("Courier New", 7, QFont.Weight.Bold))
+        brain_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        brain_btn.setStyleSheet(nm_btn.styleSheet())
+        brain_btn.setToolTip("Abrir cérebro 3D dentro do Jarvis · Ctrl+F3")
+        brain_btn.clicked.connect(self._open_brain_3d)
+        map_buttons = QHBoxLayout()
+        map_buttons.setSpacing(4)
+        map_buttons.addWidget(nm_btn)
+        map_buttons.addWidget(brain_btn)
+        lay.addLayout(map_buttons)
 
         return w
 
@@ -2111,6 +3620,8 @@ class MainWindow(QMainWindow):
     def _update_voice_panel(self, payload: dict):
         if hasattr(self, "_voice_panel"):
             self._voice_panel.set_metrics(payload)
+        if hasattr(self, "hud"):
+            self.hud.set_voice_metrics(payload)
 
     def _set_braille_panel_visible(self, visible: bool):
         for widget in (
@@ -2165,7 +3676,7 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(_fl("[F2] Nexus Lab  ·  [F3] Neural Map  ·  [F4] Mute  ·  [F11] Fullscreen"))
         lay.addStretch()
-        lay.addWidget(_fl("LRM TECNO  ·  MARK XLI  ·  CLASSIFIED"))
+        lay.addWidget(_fl(f"LRM TECNO  ·  {MARK_NAME}  ·  CLASSIFIED"))
         lay.addStretch()
         lay.addWidget(_fl("© LRM TECNO", C.PRI_DIM))
         return w
@@ -2244,9 +3755,27 @@ class MainWindow(QMainWindow):
         if self.on_text_command:
             threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 
+    def _set_music_mode(self, enabled):
+        if self.hud._reactor is not None:
+            self.hud._reactor._bridge.command.emit('openMusic' if enabled else 'closeMusic')
+
+    def _set_libras_mode(self, enabled):
+        if self.hud._reactor is not None:
+            self.hud._reactor._bridge.command.emit('openLibras' if enabled else 'closeLibras')
+
+    def _submit_libras_text(self, text):
+        if self.hud.state == 'SLEEPING': return
+        if text == "__JARVIS_DAILY_BRIEFING__":
+            self._log.append_log("SYS: Preparando briefing diário local…")
+        else:
+            self._log.append_log('You (Libras revisada): ' + text)
+        if self.on_text_command:
+            threading.Thread(target=self.on_text_command,args=(text,),daemon=True).start()
+
     def _apply_state(self, state: str):
         self.hud.state    = state
         self.hud.speaking = (state == "SPEAKING")
+        self.hud._tmr.setInterval(500 if state == "SLEEPING" else 40)
 
     def _check_config(self) -> bool:
         if not API_FILE.exists(): return False
@@ -2292,11 +3821,12 @@ class _RootShim:
 
 
 class JarvisUI:
-    def __init__(self, face_path: str, size=None):
+    def __init__(self, face_path: str, size=None, startup_visible=True):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
         self._win = MainWindow(face_path)
-        self._win.show()
+        if startup_visible:
+            self._win.show()
         self.root = _RootShim(self._app)
 
     def set_startup_visible(self, visible: bool) -> None:
@@ -2327,11 +3857,43 @@ class JarvisUI:
     def on_text_command(self, cb):
         self._win.on_text_command = cb
 
+    @property
+    def on_model_select(self):
+        return self._win.on_model_select
+
+    @on_model_select.setter
+    def on_model_select(self, cb):
+        self._win.on_model_select = cb
+
+    def set_music_mode(self, enabled=True):
+        self._win._music_sig.emit(bool(enabled))
+
+    def set_libras_mode(self, enabled=True):
+        self._win._libras_sig.emit(bool(enabled))
+
     def set_state(self, state: str):
         self._win._state_sig.emit(state)
 
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
+
+    def update_model_status(self, payload: dict):
+        if isinstance(payload, dict):
+            self._win._model_sig.emit(payload)
+
+    def control_avatar_3d(self, parameters):
+        from concurrent.futures import Future
+        from actions.avatar_control import normalize_avatar_command
+        reply = Future()
+        try:
+            command = normalize_avatar_command(parameters)
+            self._win._avatar_control_sig.emit({"command": command, "reply": reply})
+        except Exception as exc:
+            reply.set_exception(exc)
+        return reply
+
+    def set_avatar_mode(self, mode: str):
+        self._win._avatar_mode_sig.emit(str(mode or "normal"))
 
     def update_braille_translation(self, result):
         if isinstance(result, dict):
@@ -2354,6 +3916,13 @@ class JarvisUI:
     def set_temporary_mute(self, enabled: bool):
         self._win._temp_mute_sig.emit(bool(enabled))
 
+    def update_brain_activity(self, payload):
+        self._win._brain_activity_sig.emit(dict(payload))
+
+    def open_brain_3d(self):
+        """Queue the viewer on the Qt UI thread, including calls from voice tools."""
+        self._win._brain3d_sig.emit()
+
     def open_lab_screen(self):
         self._win._lab_sig.emit("open")
 
@@ -2362,6 +3931,15 @@ class JarvisUI:
 
     def toggle_lab_screen(self):
         self._win._lab_sig.emit("toggle")
+
+    def open_vision_lab(self, kind: str = "", label: str = ""):
+        self._win._vision_lab_sig.emit({"action": "open", "kind": kind, "label": label})
+
+    def close_vision_lab(self):
+        self._win._vision_lab_sig.emit({"action": "close"})
+
+    def toggle_vision_lab(self):
+        self._win._vision_lab_sig.emit({"action": "toggle"})
 
     def wait_for_api_key(self):
         while not self._win._ready:

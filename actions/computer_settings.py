@@ -1007,6 +1007,27 @@ def open_neural_map():
         return "Neural Memory Map synchronized and opened in browser."
     except Exception as e:
         return f"Failed to open neural map: {e}"
+
+
+def open_brain_3d(player=None):
+    """Open the existing brain through the UI when attached, otherwise use a browser."""
+    try:
+        import webbrowser
+        from pathlib import Path
+
+        base_dir = Path(__file__).resolve().parents[1]
+        html_path = base_dir / "memory_brain_3d.html"
+        if not html_path.exists():
+            return f"BRAIN 3D file not found: {html_path}"
+        open_in_ui = getattr(player, "open_brain_3d", None)
+        if callable(open_in_ui):
+            open_in_ui()
+            return "Abertura do cérebro 3D solicitada na interface do Jarvis."
+        if not webbrowser.open(html_path.resolve().as_uri()):
+            return "Não foi possível abrir o cérebro 3D no navegador."
+        return "Cérebro 3D aberto no navegador."
+    except Exception as e:
+        return f"Failed to open BRAIN 3D: {e}"
 def open_explorer(path: str = ""):
     """Open File Explorer at path"""
     if _OS == "Windows":
@@ -1650,6 +1671,11 @@ ACTION_MAP: dict[str, callable] = {
     "open_memory_map":     open_neural_map,
     "show_memory_map":    open_neural_map,
     "memory_visualizer":   open_neural_map,
+    # BRAIN 3D (separate part, does not touch neural map)
+    "open_brain_3d":      open_brain_3d,
+    "brain_3d":           open_brain_3d,
+    "show_brain_3d":      open_brain_3d,
+    "abrir_cerebro_3d":   open_brain_3d,
     # STATUS/INFO FUNCTIONS
     "volume_status":      get_volume_status,
     "brightness_status":   get_brightness_status,
@@ -1970,6 +1996,8 @@ def computer_settings(
         return mouse_right_click()
 
     func = ACTION_MAP.get(action)
+    if func is open_brain_3d:
+        return open_brain_3d(player=player)
     if not func:
         return f"Unknown action: '{raw_action}'."
 

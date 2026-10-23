@@ -581,7 +581,10 @@ class _BrowserSession:
             print(f"[Browser] ✅ Safari launched")
             return
 
-        profile = _real_profile_dir(self.browser_name)
+        # Chrome must always reuse the same profile so Google Home keeps its login.
+        # Do not alternate with the personal profile or create a profile per process.
+        profile = (_jarvis_profile_dir(self.browser_name)
+                   if self.browser_name == "chrome" else _real_profile_dir(self.browser_name))
 
         kwargs = {
             "headless":    False,
@@ -610,7 +613,7 @@ class _BrowserSession:
 
         use_real_profile = not _is_jarvis_profile(profile)
         if use_real_profile and _browser_process_running(self.browser_name):
-                print(f"[Browser] {label} is already open; using MARK XLI profile instead")
+                print(f"[Browser] {label} is already open; using MARK XLIV profile instead")
         elif use_real_profile:
             try:
                 self._context = await engine_obj.launch_persistent_context(profile, **kwargs)
@@ -621,10 +624,9 @@ class _BrowserSession:
             except Exception as e:
                 print(f"[Browser] ⚠️  Real profile failed for {label}: {e}")
 
-        fallback_profiles = [
-            _jarvis_profile_dir(self.browser_name),
-            _jarvis_profile_dir(self.browser_name, f"_run_{os.getpid()}"),
-        ]
+        fallback_profiles = [_jarvis_profile_dir(self.browser_name)]
+        if self.browser_name != "chrome":
+            fallback_profiles.append(_jarvis_profile_dir(self.browser_name, f"_run_{os.getpid()}"))
         last_error = None
         seen_profiles: set[str] = set()
 
@@ -632,18 +634,24 @@ class _BrowserSession:
             if jarvis_profile in seen_profiles:
                 continue
             seen_profiles.add(jarvis_profile)
-            print(f"[Browser] Retrying with MARK XLI profile: {jarvis_profile}")
+            print(f"[Browser] Retrying with MARK XLIV profile: {jarvis_profile}")
 
             try:
                 self._context = await engine_obj.launch_persistent_context(jarvis_profile, **kwargs)
                 await asyncio.sleep(0.5)
                 self._page = await self._context.new_page()
-                print(f"[Browser] ✅ Launched [{label}] with MARK XLI profile")
+                print(f"[Browser] ✅ Launched [{label}] with MARK XLIV profile")
                 return
             except Exception as e2:
                 last_error = e2
-                print(f"[Browser] ⚠️  MARK XLI profile failed ({jarvis_profile}): {e2}")
+                print(f"[Browser] ⚠️  MARK XLIV profile failed ({jarvis_profile}): {e2}")
 
+        if self.browser_name == "chrome":
+            raise RuntimeError(
+                "Não consegui abrir o perfil persistente do Chrome do Jarvis. "
+                "Feche a janela do Chrome aberta pelo Jarvis e tente novamente. "
+                "O perfil e o login foram preservados; nenhum perfil temporário foi criado."
+            ) from last_error
         raise RuntimeError(f"Could not launch {self.browser_name}: {last_error}")
 
 
@@ -1337,6 +1345,9 @@ def browser_control(
     session_memory=None,
 ) -> str:
     params  = parameters or {}
+    # LRM is the single web destination. Unsupported actions fail closed.
+    from actions.lrm_navigation import navigate
+    return navigate(params)
     action  = params.get("action", "").lower().strip()
     browser = params.get("browser", "").lower().strip() or None
     result  = "Unknown action."
@@ -1369,7 +1380,10 @@ def browser_control(
         return result
 
     try:
-        if action == "go_to":
+        if action == "google_home":
+            from actions.google_home_web import control
+            result = sess.run(control(sess, params))
+        elif action == "go_to":
             result = sess.run(sess.go_to(params.get("url", "")))
         elif action == "search":
             result = sess.run(sess.search(params.get("query", ""), params.get("engine", "google")))

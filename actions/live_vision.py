@@ -720,6 +720,15 @@ def live_vision(
     params    = parameters or {}
     user_text = params.get("text", "What do you see on screen? Describe briefly.").strip()
     mode      = params.get("mode", "screen").lower().strip()  # screen or camera
+    # NVIDIA Camera Lab deterministic reroute
+    request_key = user_text.casefold()
+    requested_mode = str(params.get("provider") or params.get("camera_mode") or "").casefold()
+    if (
+        ("nvidia" in request_key and any(word in request_key for word in ("camera", "c\u00e2mera", "lab")))
+        or requested_mode in {"nvidia", "nvidia_camera", "nvidia-camera"}
+    ):
+        from actions.nvidia_camera_lab import nvidia_camera_lab
+        return nvidia_camera_lab({"action": "open"}, player=player)
     continuous = _as_bool(params.get("continuous", False))
     camera_vision = _wants_camera_vision(user_text)
     record_requested = _wants_recording(params, user_text)

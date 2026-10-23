@@ -83,44 +83,56 @@ DEFAULT_MACROS: dict[str, dict[str, Any]] = {
             {"tool": "local_llm", "parameters": {"action": "status"}},
         ],
     },
-    "modelo_local_rapido": {
-        "description": "Ativa modelo local rapido 1B.",
-        "aliases": ["modelo local rapido", "ia local rapida"],
+    "modelo_local_normal": {
+        "description": "Ativa modo Normal com modelo local 1B e esforco baixo.",
+        "aliases": ["modelo local normal", "ia local normal", "usar 1b local"],
         "steps": [
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "normal"}},
+            {"tool": "local_llm", "parameters": {"action": "normal"}},
+        ],
+    },
+    "modelo_local_rapido": {
+        "description": "Ativa modo Rapido com Qwen 4B e esforco medio.",
+        "aliases": ["modelo local rapido", "ia local rapida", "usar 4b local"],
+        "steps": [
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "rapido"}},
             {"tool": "local_llm", "parameters": {"action": "fast"}},
         ],
     },
-    "modelo_local_profundo": {
-        "description": "Ativa modelo local profundo 8B.",
-        "aliases": ["modelo local profundo", "usar 8b profundo"],
+    "modelo_local_ultra": {
+        "description": "Ativa modo Ultra com Gemma 4 8B e esforco alto.",
+        "aliases": ["modelo local ultra", "modelo local profundo", "usar 8b profundo"],
         "steps": [
-            {"tool": "local_llm", "parameters": {"action": "deep"}},
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "ultra"}},
+            {"tool": "local_llm", "parameters": {"action": "ultra"}},
         ],
-    },    "fixar_modelo_local_8b": {
-        "description": "Configura llama3.1:8b como modelo local real.",
-        "aliases": ["modelo local 8b", "usar llama 8b"],
-        "steps": [
-            {"tool": "local_llm", "parameters": {"action": "setup", "model": "llama3.1:8b", "parameters_b": 8}},
-        ],
-    },    "modulos_cerebro": {
+    },
+    "modulos_cerebro": {
         "description": "Lista modulos de parametros do cerebro Jarvis.",
         "aliases": ["modulos do cerebro", "parametros do cerebro"],
         "steps": [
             {"tool": "brain_mode", "parameters": {"action": "modulos"}},
         ],
     },
-    "modulo_cerebro_pro": {
-        "description": "Ativa modulo pro do cerebro com parametros elevados e otimizados.",
-        "aliases": ["modulo pro", "aumentar parametros", "modo turbo cerebro"],
+    "modulo_cerebro_normal": {
+        "description": "Ativa modo Normal do cerebro.",
+        "aliases": ["modulo normal", "modo normal cerebro", "modulo leve"],
         "steps": [
-            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "pro"}},
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "normal"}},
         ],
     },
-    "modulo_cerebro_max": {
-        "description": "Ativa modulo max para pesquisas pesadas.",
-        "aliases": ["modulo max", "cerebro max"],
+    "modulo_cerebro_rapido": {
+        "description": "Ativa modo Rapido do cerebro.",
+        "aliases": ["modulo rapido", "modo rapido cerebro", "modulo pro"],
         "steps": [
-            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "max"}},
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "rapido"}},
+        ],
+    },
+    "modulo_cerebro_ultra": {
+        "description": "Ativa modo Ultra do cerebro.",
+        "aliases": ["modulo ultra", "modo ultra cerebro", "modulo max"],
+        "steps": [
+            {"tool": "brain_mode", "parameters": {"action": "modulo", "module": "ultra"}},
         ],
     },
     "modulo_cerebro_ultra": {

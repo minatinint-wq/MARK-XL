@@ -12,8 +12,8 @@ def jarvis_lab(parameters: dict[str, Any] | None = None, player=None, speak=None
 
     if action in {"status", "info", "modules", "modulos"}:
         return (
-            "Nexus Lab pronto: LAB, 05 memoria auditiva, 07 automacao, "
-            "08 visao/camera, 09 cerebro neural e 11 busca/assets."
+            "Nexus Lab pronto: LAB, 05 memoria auditiva e afetiva, 07 automacao, "
+            "08 Vision Labs para ensinar pessoas e objetos pela camera, 09 cerebro neural e 11 busca/assets."
         )
 
     if action in {"close", "fechar", "stop", "hide"}:

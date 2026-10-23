@@ -342,7 +342,7 @@ study-cycle: {cycle}
 
 ## Expansao neural
 
-Este conceito foi adicionado durante um ciclo continuo de estudo. Ele deve ser conectado ao conhecimento existente do MARK-XL e usado em respostas futuras quando houver relacao com o tema.
+Este conceito foi adicionado durante um ciclo continuo de estudo. Ele deve ser conectado ao conhecimento existente do MARK-XLIV e usado em respostas futuras quando houver relacao com o tema.
 
 ## Conexoes
 

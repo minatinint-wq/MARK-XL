@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jarvis · Arc Reactor</title>
+<link rel="stylesheet" href="reactor.css"><link rel="stylesheet" href="sketchbook.css"><link rel="stylesheet" href="libras.css"><link rel="stylesheet" href="music-studio.css">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
+</head><body>
+<div id="viewport" aria-label="Reator 3D do Jarvis"></div>
+<header><div class="eyebrow"><i></i> ARC REACTOR <span id="protocol-label">MARK XLIV</span></div><div id="status">Inicializando</div></header>
+<div id="holo-deck" aria-hidden="true">
+  <div class="holo-orbit"><i></i><i></i><i></i><b></b></div>
+  <section class="holo-card holo-card-a"><small>CONEXÃO CENTRAL</small><strong id="brief-core">NÚCLEO ESTÁVEL</strong><span>REDE LOCAL · PROTEGIDA</span></section>
+  <section class="holo-card holo-card-b"><small>ATIVIDADE</small><strong id="brief-state">EM ESPERA</strong><span id="brief-detail">AGUARDANDO COMANDO</span></section>
+  <section class="holo-card holo-card-c"><small>SINAL DE VOZ</small><strong id="brief-signal">00%</strong><span>CANAL PT-BR · SINCRONIZADO</span></section>
+  <div class="holo-link holo-link-a"></div><div class="holo-link holo-link-b"></div><div class="holo-link holo-link-c"></div>
+</div>
+<div id="loading">Iniciando núcleo 3D<span>Carregando seu reator…</span></div>
+<div class="side-tag">J.A.R.V.I.S. / NEURAL INTERFACE</div>
+<div id="camera-panel" hidden><video id="camera-video" playsinline muted></video><canvas id="landmarks"></canvas><span id="gesture-label">Preparando câmera</span></div>
+<div id="toast" role="status"></div>
+<footer><div class="energy"><span id="activity-label">NÚCLEO ESTÁVEL</span><div class="meter"><b id="energy-bar"></b></div><span id="signal-label">EM ESPERA</span></div>
+<div class="controls"><button id="face-button" title="Alternar armadura e reator" aria-pressed="true">Armadura</button><button id="material-button" title="Alternar holograma azul e metal" aria-pressed="false">Metal</button><button id="reset-button" title="Restaurar enquadramento e posição">Centralizar</button><button id="briefing-button" title="Pedir um briefing local, sem inventar fontes ausentes">Relatório</button><button id="camera-button" title="Controlar com uma ou duas mãos: zoom, mover, girar e inclinar" aria-pressed="false">Câmera</button><button id="sketch-button" title="Desenhar com as mãos e criar imagens">Sketchbook</button><button id="libras-button" title="Comunicação em Libras com revisão">Libras</button><button id="music-button" title="Tocar instrumentos com as mãos">Música</button><button id="expand-button" title="Ampliar controles 3D">Ampliar</button></div>
+<div id="help">Mova o mouse para olhar · Arraste para girar · Role para zoom</div></footer>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script><script type="module" src="reactor.js"></script>
+</body></html>

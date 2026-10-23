@@ -259,7 +259,17 @@ def _record_stream(label: str, duration: float, sample_rate: int) -> bytes:
     return _MEMORY.finish(rec)
 
 
-def _learn(label: str, duration: float, sample_rate: int, save_sample: bool = True) -> str:
+def _learn(
+    label: str,
+    duration: float,
+    sample_rate: int,
+    save_sample: bool = True,
+    kind: str = "sound",
+    emotion: str = "",
+    relationship: str = "",
+    note: str = "",
+    transcribe: bool = False,
+) -> str:
     if not label:
         return "Informe o nome do som. Exemplo: label='plastico amassando'."
     audio = _record_stream(label, duration, sample_rate)
@@ -283,12 +293,43 @@ def _learn(label: str, duration: float, sample_rate: int, save_sample: bool = Tr
         "vector": avg,
         "last_details": details,
         "examples": examples,
+        "kind": kind,
+        "emotion": emotion,
+        "relationship": relationship,
     }
     _save_profiles(profiles)
+    transcript = ""
+    memory_note = ""
+    try:
+        from actions.affective_memory import observe_entity, remember_entity, transcribe_audio
+        remember_entity(
+            kind=kind,
+            label=label,
+            emotion=emotion,
+            relationship=relationship,
+            details=note or f"Perfil acustico aprendido com {sample_count + 1} amostra(s).",
+            importance=0.7 if kind in {"voice", "person", "animal"} else 0.5,
+            source="sound_learning",
+        )
+        if transcribe and sample_path:
+            transcript = transcribe_audio(sample_path).get("text", "")
+        memory = observe_entity(
+            kind=kind,
+            label=label,
+            event="amostra de audio aprendida",
+            details=f"centroid {details['centroid_hz']} Hz; rms {details['rms']}",
+            confidence=1.0,
+            transcript=transcript,
+            source="sound_learning",
+        )
+        memory_note = str(memory.get("note_path") or "")
+    except Exception as exc:
+        memory_note = f"memoria afetiva pendente: {exc}"
+    transcript_text = f" Fala transcrita: {transcript}" if transcript else ""
     return (
-        f"Som aprendido: {label} ({sample_count + 1} amostra(s)). "
+        f"Som aprendido: {label} ({sample_count + 1} amostra(s), tipo {kind}). "
         f"Assinatura: centroid {details['centroid_hz']} Hz, rms {details['rms']}. "
-        f"Arquivo: {sample_path or 'nao salvo'}"
+        f"Arquivo: {sample_path or 'nao salvo'}. Memoria: {memory_note}.{transcript_text}"
     )
 
 
@@ -303,6 +344,20 @@ def _classify(duration: float, sample_rate: int, top_k: int = 3) -> str:
         score = _cosine(vector, profile.get("vector") or [])
         scored.append((score, profile))
     scored.sort(key=lambda item: item[0], reverse=True)
+    if scored and scored[0][0] >= 0.78:
+        try:
+            from actions.affective_memory import observe_entity
+            best_score, best_profile = scored[0]
+            observe_entity(
+                kind=str(best_profile.get("kind") or "sound"),
+                label=str(best_profile.get("label") or best_profile.get("slug")),
+                event="assinatura sonora reconhecida",
+                details=f"Audio de {details['duration_seconds']}s",
+                confidence=best_score,
+                source="sound_learning",
+            )
+        except Exception:
+            pass
     top_k = max(1, min(int(top_k), 8))
     lines = [
         "Classificacao de som:",
@@ -353,7 +408,19 @@ def sound_learning(parameters: dict | None = None, player=None, speak=None) -> s
 
     if action in {"learn", "record", "aprender", "gravar", "salvar"}:
         label = str(params.get("label") or params.get("name") or params.get("sound") or params.get("query") or "").strip()
-        return _learn(label, duration, sample_rate, save_sample=bool(params.get("save_sample", True)))
+        kind = str(params.get("kind") or params.get("type") or "sound").lower().strip()
+        transcribe = bool(params.get("transcribe", kind in {"voice", "voz", "person", "pessoa"}))
+        return _learn(
+            label,
+            duration,
+            sample_rate,
+            save_sample=bool(params.get("save_sample", True)),
+            kind=kind,
+            emotion=str(params.get("emotion") or params.get("affection") or ""),
+            relationship=str(params.get("relationship") or ""),
+            note=str(params.get("note") or params.get("details") or ""),
+            transcribe=transcribe,
+        )
 
     if action in {"classify", "identify", "identificar", "detectar", "compare"}:
         return _classify(duration, sample_rate, top_k=int(params.get("top_k") or 3))

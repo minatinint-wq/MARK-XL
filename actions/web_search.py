@@ -192,6 +192,14 @@ def web_search(
     session_memory=None,
 ) -> str:
     params = parameters or {}
+    # Search internally in LRM and summarize locally: no Gemini or paid fallback.
+    from actions.lrm_navigation import navigate
+    local_query = str(params.get('query') or '').strip()
+    if params.get('items'):
+        local_query = 'Compare ' + ', '.join(map(str, params['items'])) + ' ' + str(params.get('aspect') or '')
+    if not local_query:
+        return 'Informe o que deseja pesquisar.'
+    return navigate({'action':'search_answer','query':local_query})
     query  = params.get("query", "").strip()
     mode   = params.get("mode",  "search").lower().strip()
     items  = params.get("items", [])

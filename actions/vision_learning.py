@@ -206,7 +206,7 @@ confidence: 1.0
 
 ## Politica de privacidade
 
-O MARK XLI processa camera e tela como fluxo temporario. Midia bruta nao e preservada.
+O MARK XLIV processa camera e tela como fluxo temporario. Midia bruta nao e preservada.
 Esta nota so foi atualizada porque o sinal Braille ficou estavel e confirmado.
 
 ## Uso
