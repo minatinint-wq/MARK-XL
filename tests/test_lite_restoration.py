@@ -1,14 +1,13 @@
-import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from actions import dev_agent, lite_creative_ui, nvidia_camera_lab, spotify_reconnect
+from actions import dev_agent, lite_creative_ui, nvidia_camera_lab, sketchbook, spotify_reconnect, video_generation
 
 
 class LiteRestorationTests(unittest.TestCase):
     def test_nvidia_status_does_not_claim_missing_studio(self):
-        with patch.dict(os.environ, {"JARVIS_NVIDIA_STUDIO": str(Path("C:/missing-lab/art_studio.py"))}):
+        with patch.object(nvidia_camera_lab, "_studio_path", return_value=Path("C:/missing-lab/art_studio.py")):
             self.assertIn("não instalado", nvidia_camera_lab.nvidia_camera_lab({"action": "status"}))
 
     def test_nvidia_launch_uses_active_python_and_camera_tab(self):
@@ -17,6 +16,27 @@ class LiteRestorationTests(unittest.TestCase):
             result = nvidia_camera_lab.nvidia_camera_lab({"action": "open"})
         self.assertIn("aberto", result)
         self.assertEqual(popen.call_args.args[0][-2:], ["--tab", "camera"])
+        self.assertEqual(
+            popen.call_args.kwargs["env"]["JARVIS_API_KEYS"],
+            str(nvidia_camera_lab.APP_ROOT / "config" / "api_keys.json"),
+        )
+        self.assertEqual(
+            popen.call_args.kwargs["env"]["JARVIS_ROOT"],
+            str(nvidia_camera_lab.APP_ROOT),
+        )
+
+    def test_nvidia_studio_is_bundled_beside_jarvis(self):
+        self.assertEqual(
+            nvidia_camera_lab._studio_path(),
+            nvidia_camera_lab.APP_ROOT / "NVIDIA_AI_ART_STUDIO" / "art_studio.py",
+        )
+        self.assertIn("pronto", nvidia_camera_lab.nvidia_camera_lab({"action": "status"}))
+
+    def test_creative_actions_share_the_bundled_studio(self):
+        expected = nvidia_camera_lab.APP_ROOT / "NVIDIA_AI_ART_STUDIO" / "art_studio.py"
+        self.assertEqual(sketchbook.STUDIO, expected)
+        self.assertEqual(video_generation.STUDIO, expected)
+        self.assertTrue(video_generation.WORKER.is_file())
 
     def test_spotify_connected_does_not_open_browser(self):
         client = type("Client", (), {"current_user": lambda self: {"display_name": "Teste", "product": "premium"}})()

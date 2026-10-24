@@ -16,7 +16,7 @@ from PIL import Image
 APP_ROOT = Path(__file__).resolve().parents[1]
 LIBRARY = APP_ROOT / 'sketchbook' / 'modelos'
 _studio_setting = os.environ.get('JARVIS_NVIDIA_STUDIO', '').strip()
-STUDIO = Path(_studio_setting) if _studio_setting else Path.home() / 'Desktop' / 'NVIDIA_AI_ART_STUDIO' / 'art_studio.py'
+STUDIO = Path(_studio_setting) if _studio_setting else APP_ROOT / 'NVIDIA_AI_ART_STUDIO' / 'art_studio.py'
 if STUDIO.is_dir():
     STUDIO /= 'art_studio.py'
 

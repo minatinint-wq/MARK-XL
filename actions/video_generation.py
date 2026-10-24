@@ -8,10 +8,9 @@ from pathlib import Path
 from actions.runtime_identity import APP_ROOT
 from typing import Any
 
-USER_HOME = Path.home()
-STUDIO = USER_HOME / "Desktop" / "NVIDIA_AI_ART_STUDIO" / "art_studio.py"
+STUDIO = APP_ROOT / "NVIDIA_AI_ART_STUDIO" / "art_studio.py"
 WORKER = STUDIO.parent / "hf_video_worker.py"
-BUNDLED_PYTHON = APP_ROOT / "Python" / "bin" / "python.exe"
+BUNDLED_PYTHON = Path(sys.executable)
 OUTPUT_DIR = STUDIO.parent / "videos"
 LOG_DIR = APP_ROOT / "logs"
 LAUNCH_LOG = LOG_DIR / "video_generation.jsonl"

@@ -32,9 +32,13 @@ def nvidia_camera_lab(parameters=None, response=None, player=None, speak=None) -
     if not studio.is_file():
         return "NVIDIA Camera Lab não instalado neste PC. Instale o NVIDIA_AI_ART_STUDIO ou configure JARVIS_NVIDIA_STUDIO com o caminho de art_studio.py."
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    env = os.environ.copy()
+    env["JARVIS_ROOT"] = str(APP_ROOT)
+    env["JARVIS_API_KEYS"] = str(APP_ROOT / "config" / "api_keys.json")
     subprocess.Popen(
         [str(Path(sys.executable)), str(studio), "--tab", "camera"],
         cwd=str(studio.parent),
         creationflags=flags,
+        env=env,
     )
     return "NVIDIA Camera Lab aberto na aba de reconhecimento de objetos, pessoas e gestos."

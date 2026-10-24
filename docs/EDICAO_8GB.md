@@ -11,9 +11,12 @@ O detector local da frase de chamada também fica desligado: assim ele não
 carrega o modelo Whisper em segundo plano. A conversa normal por microfone
 continua disponível.
 
-Os atalhos Câmera, Gestos, Desenho e Braille funcionam sob demanda. NVIDIA
-Camera Lab depende de uma instalação separada do `NVIDIA_AI_ART_STUDIO` no
-Desktop, ou da variável `JARVIS_NVIDIA_STUDIO` apontando para `art_studio.py`.
+Os atalhos Câmera, Gestos, Desenho e Braille funcionam sob demanda. O NVIDIA
+Camera Lab fica na subpasta `NVIDIA_AI_ART_STUDIO` ao lado de `main.py` e usa o
+mesmo `config/api_keys.json` da instalação atual, mesmo em outro usuário ou
+diretório. É possível testá-lo diretamente com
+`NVIDIA_AI_ART_STUDIO/ABRIR_CAMERA_LAB.bat`. A variável
+`JARVIS_NVIDIA_STUDIO` continua opcional para uma instalação personalizada.
 O botão Spotify verifica a API e, se a sessão expirou, inicia uma nova
 autorização local pela porta 8888; renovar o plano não renova o token sozinho.
 O WhatsApp local requer API Bird instalada e pareada no PC de destino, com
