@@ -1,0 +1,20 @@
+{
+  "number": 44,
+  "roman": "XLIV",
+  "previous": 41,
+  "updated": "2026-10-24",
+  "stages": [
+    {
+      "number": 44,
+      "name": "Edição externa leve",
+      "features": [
+        "Interface de brilho de voz sem armadura 3D",
+        "Conversa por voz e texto com chave Gemini própria quando disponível",
+        "Câmera e ferramentas locais sob demanda",
+        "Gmail de metadados somente leitura com OAuth próprio",
+        "Spotify e WhatsApp local opcionais com contas próprias"
+      ]
+    }
+  ],
+  "history_note": "Pacote externo sem dados, chaves e infraestrutura privada do criador."
+}

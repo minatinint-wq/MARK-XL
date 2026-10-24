@@ -30,7 +30,9 @@ class FishVoiceError(RuntimeError):
 
 
 def read_settings() -> dict:
-    defaults = {"enabled": True, "speed": 1.0}
+    # The distributable edition must not select the creator's voice profile
+    # unless the buyer explicitly configures an account/profile of their own.
+    defaults = {"enabled": os.environ.get("JARVIS_EXTERNAL_EDITION") != "1", "speed": 1.0}
     try:
         value = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
         speed = float(value.get("speed", 1.0))

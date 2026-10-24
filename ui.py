@@ -3315,6 +3315,7 @@ class MainWindow(QMainWindow):
 
     def _build_lite_tools(self) -> QWidget:
         """Keep the camera tools reachable without loading the 3D/WebEngine view."""
+        external_edition = os.environ.get("JARVIS_EXTERNAL_EDITION") == "1"
         panel = QWidget()
         panel.setStyleSheet(f"background: {C.DARK}; border-top: 1px solid {C.BORDER_B};")
         layout = QVBoxLayout(panel)
@@ -3350,17 +3351,18 @@ class MainWindow(QMainWindow):
             ("liteStopCameraButton", "PARAR CÂM.", "Encerrar a webcam do Vision Labs e dos gestos.",
              self._stop_lite_camera),
         ])
+        if not external_edition:
+            add_row([
+                ("liteSketchButton", "SKETCHBOOK", "Abrir Sketchbook original sob demanda.",
+                 lambda: self._open_creative_mode("sketch")),
+                ("liteMusicButton", "INSTRUMENTOS", "Abrir instrumentos por gestos sob demanda.",
+                 lambda: self._open_creative_mode("music")),
+                ("liteLibrasButton", "LIBRAS", "Abrir módulo de Libras sob demanda.",
+                 lambda: self._open_creative_mode("libras")),
+            ])
         add_row([
-            ("liteSketchButton", "SKETCHBOOK", "Abrir Sketchbook original sob demanda.",
-             lambda: self._open_creative_mode("sketch")),
-            ("liteMusicButton", "INSTRUMENTOS", "Abrir instrumentos por gestos sob demanda.",
-             lambda: self._open_creative_mode("music")),
-            ("liteLibrasButton", "LIBRAS", "Abrir módulo de Libras sob demanda.",
-             lambda: self._open_creative_mode("libras")),
             ("liteDrawButton", "DESENHO", "Desenhar com os dedos, sem o visualizador 3D.",
              lambda: self._run_lite_camera_action("start", "draw")),
-        ])
-        add_row([
             ("liteBrailleButton", "BRAILLE", "Leitura Braille pela webcam.",
              lambda: self._run_lite_camera_action("start", "braille")),
             ("liteSpotifyButton", "SPOTIFY", "Verificar API e reconectar a conta se necessário.",
@@ -3369,15 +3371,17 @@ class MainWindow(QMainWindow):
              lambda: self._submit_libras_text("__JARVIS_DAILY_BRIEFING__")),
             ("liteWhatsAppButton", "WHATSAPP", "Contatos e mensagens pela API Bird em 127.0.0.1.",
              self._open_bird_local),
+        ] + ([] if external_edition else [
             ("liteLabButton", "NEXUS", "Abrir os outros módulos do Jarvis.",
              lambda: self._handle_lab_signal("open")),
-        ])
+        ]))
         add_row([
             ("liteGmailButton", "E-MAIL", "Espelho Gmail de remetente, assunto e data, somente leitura.",
              self._open_gmail_mirror),
+        ] + ([] if external_edition else [
             ("liteRemoteAiButton", "IA REMOTA", "Perguntar ao motor gratuito pelo gateway local 127.0.0.1:8779.",
              self._ask_remote_ai),
-        ])
+        ]))
         return panel
 
     def _ask_remote_ai(self) -> None:

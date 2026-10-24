@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+config/api_keys.json
+config/spotify_credentials.json
+config/gmail_oauth_client.json
+config/.gmail_token.dpapi
+config/.remote_ai_access.key
+config/.fish-token.dpapi
+config/fish_voice.json
+memory/*.json
+memory/*.db
+.env

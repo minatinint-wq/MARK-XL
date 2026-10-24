@@ -14,7 +14,8 @@ import unicodedata
 from array import array
 from pathlib import Path
 from actions.lrm_navigation import install_web_routing
-install_web_routing()
+if os.environ.get("JARVIS_EXTERNAL_EDITION") != "1":
+    install_web_routing()
 
 _qt_rules = os.environ.get("QT_LOGGING_RULES", "")
 if "qt.qpa.window" not in _qt_rules:
@@ -2068,8 +2069,9 @@ class JarvisLive:
         self._tool_dedupe_cache = {}
         self._voice_message_flow = VoiceMessageFlow()
         self._voice_send_lock = threading.Lock()
-        self._remote_ai_ready = start_gateway()
-        self.ui.write_log("IA REMOTA: gateway local 127.0.0.1:8779 pronto." if self._remote_ai_ready else "IA REMOTA: configure JARVIS_LEADIO_AI_KEY neste PC.")
+        self._remote_ai_ready = os.environ.get("JARVIS_EXTERNAL_EDITION") != "1" and start_gateway()
+        if os.environ.get("JARVIS_EXTERNAL_EDITION") != "1":
+            self.ui.write_log("IA REMOTA: gateway local 127.0.0.1:8779 pronto." if self._remote_ai_ready else "IA REMOTA: configure JARVIS_LEADIO_AI_KEY neste PC.")
         self.ui.on_text_command = self._on_text_command
         self.ui.on_model_select = self._on_model_select
         self._turn_done_event: asyncio.Event | None = None
