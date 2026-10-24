@@ -127,3 +127,11 @@ class BirdLocalDialog(QDialog):
     def _finish_send(self, result: str):
         self.status.setText(result)
         self.send_button.setEnabled(True)
+
+    def show_draft(self, receiver: str, message: str = "") -> None:
+        self.name.setText(receiver)
+        self.message.setPlainText(message)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        (self.message if message else self.name).setFocus()

@@ -59,6 +59,9 @@ def build(source: Path, output: Path) -> None:
     fish_settings = source / "config" / "fish_voice.json"
     if fish_settings.is_file():
         shutil.copy2(fish_settings, private / "fish_voice.json")
+    remote_ai_key = source / "config" / ".remote_ai_access.key"
+    if remote_ai_key.is_file():
+        shutil.copy2(remote_ai_key, private / ".remote_ai_access.key")
 
     local_config = json.loads((ROOT / "config" / "local_llm.example.json").read_text(encoding="utf-8"))
     local_config.update({"mode": "normal", "model": local_config["normal_model"],
@@ -78,6 +81,7 @@ def build(source: Path, output: Path) -> None:
     print(f"Pacote privado criado em: {output}")
     print(f"Chave Fish para migração: {'sim' if fish_key else 'não'}")
     print(f"Sessão Spotify para migração: {'sim' if cache.is_file() else 'não'}")
+    print(f"Chave privada do gateway IA: {'sim' if remote_ai_key.is_file() else 'não'}")
     print("ATENÇÃO: contém credenciais legíveis; não envie para GitHub ou link público.")
 
 

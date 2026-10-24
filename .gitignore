@@ -54,6 +54,7 @@ config/jarvis_relay.json
 config/bird_local.json
 config/.bird_local_key.dpapi
 config/.bird_local_idempotency.json
+config/.remote_ai_access.key
 config/iphone_social_config.html
 
 # Personal/generated memory

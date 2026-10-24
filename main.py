@@ -102,6 +102,8 @@ from actions.fish_voice import FishVoiceSession, voice_status, VOICE_NAME as FIS
 from actions.microphone_sensitivity import MicrophoneGain, ensure_microphone_max
 from actions.live_recovery import failure_details, retry_delay
 from actions.power_wake import power_command
+from actions.voice_message_flow import VoiceMessageFlow
+from actions.remote_ai_gateway import start_gateway, ask_local, RemoteAIError
 
 class _SuspendJarvis(Exception):
     pass
@@ -2064,6 +2066,10 @@ class JarvisLive:
         self._last_smart_home_command_at = 0.0
         self._last_smart_home_command_signature = ""
         self._tool_dedupe_cache = {}
+        self._voice_message_flow = VoiceMessageFlow()
+        self._voice_send_lock = threading.Lock()
+        self._remote_ai_ready = start_gateway()
+        self.ui.write_log("IA REMOTA: gateway local 127.0.0.1:8779 pronto." if self._remote_ai_ready else "IA REMOTA: configure JARVIS_LEADIO_AI_KEY neste PC.")
         self.ui.on_text_command = self._on_text_command
         self.ui.on_model_select = self._on_model_select
         self._turn_done_event: asyncio.Event | None = None
@@ -2218,6 +2224,10 @@ class JarvisLive:
             self._turn_done_event.set()
 
     def _on_text_command(self, text: str):
+        if self._handle_voice_message_command(text):
+            return
+        if self._handle_remote_ai_command(text):
+            return
         if self._handle_power_command(text):
             return
         if self._handle_fish_voice_command(text):
@@ -2708,6 +2718,11 @@ class JarvisLive:
             return True
         if not full_in:
             return False
+        if not self.is_temporary_muted() and not self.is_call_privacy_active():
+            if self._handle_voice_message_command(full_in):
+                return True
+            if self._handle_remote_ai_command(full_in):
+                return True
         if self._dispatch_local_smart_home_command(full_in):
             return True
         if self._dispatch_local_video_command(full_in):
@@ -2735,6 +2750,87 @@ class JarvisLive:
             return True
 
         return False
+
+    def _handle_remote_ai_command(self, text: str) -> bool:
+        match = re.match(r"^(?:jarvis[, ]+)?(?:ia remota|motor remoto|pergunte a ia remota|pergunta a ia remota)\s*[:,-]?\s*(.+)$", str(text or "").strip(), flags=re.I)
+        if not match:
+            return False
+        question = match.group(1).strip()
+        if not self._remote_ai_ready:
+            self.ui.write_log("IA REMOTA: gateway não iniciado. Configure JARVIS_LEADIO_AI_KEY neste PC.")
+            self.speak("A inteligência remota ainda não está configurada neste computador.")
+            return True
+
+        def work():
+            try:
+                result = ask_local(question)
+                answer = result.get("answer") or "O modelo terminou sem texto."
+                self.ui.write_log("IA REMOTA: " + answer)
+                self.speak(answer[:3000])
+            except RemoteAIError as exc:
+                self.ui.write_log("IA REMOTA: " + str(exc))
+                self.speak("Não consegui concluir a consulta remota. Veja o registro de atividade.")
+
+        threading.Thread(target=work, name="JarvisRemoteAIQuestion", daemon=True).start()
+        return True
+
+    def _handle_voice_message_command(self, text: str) -> bool:
+        event = self._voice_message_flow.accept(text)
+        if event is None:
+            return False
+        action, receiver, message = event
+        if action == "invalid":
+            self.speak("Diga o nome de um contato cadastrado.")
+        elif action == "open":
+            try:
+                from actions.bird_local import resolve_contact
+                import webbrowser
+                name, phone = resolve_contact(receiver)
+                self._voice_message_flow.receiver = name
+                self.ui.show_bird_draft(name)
+                webbrowser.open(f"https://web.whatsapp.com/send?phone={phone}")
+                self.ui.write_log(f"WHATSAPP: conversa de {name} aberta; aguardando ditado.")
+                self.speak(f"Conversa de {name} aberta. Diga agora o texto da mensagem.")
+            except Exception as exc:
+                self._voice_message_flow.reset()
+                self.ui.write_log("WHATSAPP: " + str(exc))
+                self.speak("Esse contato não está cadastrado e autorizado na Bird local.")
+        elif action in {"draft", "read"}:
+            self.ui.show_bird_draft(receiver, message)
+            self.ui.write_log(f"WHATSAPP: rascunho para {receiver}: {message}")
+            self.speak(("Rascunho pronto. Revise na tela. Diga confirmar envio ou corrija a mensagem." if action == "draft" else message)[:3000])
+        elif action == "need_text":
+            self.speak("Diga primeiro o texto que deseja enviar.")
+        elif action == "cancel":
+            self.ui.write_log("WHATSAPP: rascunho cancelado; nada enviado.")
+            self.speak("Mensagem cancelada.")
+        elif action == "send":
+            if not self._voice_send_lock.acquire(blocking=False):
+                return True
+
+            def send_after_review():
+                try:
+                    if not self.ui.confirm_bird_message(receiver, message):
+                        self.ui.write_log("WHATSAPP: confirmação recusada; nada enviado.")
+                        return
+                    if (self._voice_message_flow.stage != "draft"
+                            or self._voice_message_flow.receiver != receiver
+                            or self._voice_message_flow.message != message):
+                        self.ui.write_log("WHATSAPP: rascunho mudou ou foi cancelado; nada enviado.")
+                        return
+                    from actions.bird_local import send_text
+                    result = send_text(receiver, message, confirmed=True)
+                    self.ui.write_log("WHATSAPP: " + result)
+                    self.speak(result)
+                    self._voice_message_flow.reset()
+                except Exception as exc:
+                    self.ui.write_log("WHATSAPP: " + str(exc))
+                    self.speak("Não recebi confirmação de envio. Confira o registro antes de tentar novamente.")
+                finally:
+                    self._voice_send_lock.release()
+
+            threading.Thread(target=send_after_review, name="JarvisVoiceMessageSend", daemon=True).start()
+        return True
 
     def _build_config(self) -> types.LiveConnectConfig:
         from datetime import datetime
@@ -2959,6 +3055,7 @@ class JarvisLive:
             elif name == "send_message":
                 r = await loop.run_in_executor(None, lambda: send_message(parameters=args, response=None, player=self.ui, session_memory=None))
                 result = r or f"Message sent to {args.get('receiver')}."
+
 
             elif name == "social_control":
                 r = await loop.run_in_executor(None, lambda: social_control_action(parameters=args, player=self.ui, speak=self.speak))

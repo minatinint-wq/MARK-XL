@@ -18,6 +18,20 @@ O botão Spotify verifica a API e, se a sessão expirou, inicia uma nova
 autorização local pela porta 8888; renovar o plano não renova o token sozinho.
 O WhatsApp local requer API Bird instalada e pareada no PC de destino, com
 consentimento explícito para cada destinatário e confirmação antes do envio.
+Por voz, diga "Jarvis, enviar mensagem para Maria". O Jarvis abre a conversa
+no WhatsApp Web e o rascunho local. Dite o texto; revise na janela e diga
+"confirmar envio" para pedir uma confirmação final antes da API Bird enfileirar
+a mensagem. "Corrigir mensagem para ..." troca o rascunho; "cancelar mensagem"
+não envia nada. O WhatsApp Web aberto serve para conferir o destinatário; o
+envio é feito pela API Bird local, não por clique automatizado.
+
+O motor de IA independente usa um gateway que escuta somente em
+`127.0.0.1:8779`, iniciado junto com Jarvis. A chave de acesso ao serviço
+hospedado pode estar em `JARVIS_LEADIO_AI_KEY` no ambiente deste PC ou no
+arquivo privado `config/.remote_ai_access.key`; o valor nunca vai para o Git.
+Somente modelos gratuitos são aceitos. Diga "Jarvis, IA remota: [pergunta]"
+para consultar; o Jarvis mostra e lê a resposta. Isso não sincroniza CRM,
+memórias ou arquivos e requer internet. A rota `/health` do gateway é local.
 
 O iniciador `INICIAR_JARVIS_8GB.bat` solicita permissão de administrador pelo
 UAC a cada abertura. Se cancelar, o Jarvis não inicia. Isso amplia o acesso
@@ -31,8 +45,9 @@ instala dependências nem executa automaticamente o código que a IA gerou.
 
 1. Faça uma cópia de segurança da pasta atual do Jarvis.
 2. Copie **todo o conteúdo** do pacote privado para essa pasta, substituindo
-   os arquivos da versão antiga. Mantenha a pasta `Python`/`.venv` já instalada
-   no PC; ela não vai no pacote de atualização.
+   os arquivos da versão antiga. Se o pacote for o **completo** de reinstalação,
+   a pasta `Python` já está incluída; pacotes menores de atualização dependem
+   de um Python instalado separadamente.
 3. Inicie com `INICIAR_JARVIS_8GB.bat`, não com o iniciador padrão.
 4. Na primeira abertura, a chave Fish é protegida para o usuário Windows do
    PC de destino e o arquivo temporário é removido. O token Spotify é

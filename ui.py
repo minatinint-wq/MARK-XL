@@ -31,7 +31,7 @@ from PyQt6.QtGui import (
     QRadialGradient, QShortcut,
 )
 from PyQt6.QtWidgets import (
-    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
     QMainWindow, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QTextEdit,
     QVBoxLayout, QWidget, QProgressBar,
 )
@@ -2906,6 +2906,7 @@ class MainWindow(QMainWindow):
     _brain_activity_sig = pyqtSignal(dict)
     _bird_confirm_sig = pyqtSignal(dict)
     _bird_open_sig = pyqtSignal()
+    _bird_draft_sig = pyqtSignal(dict)
     _dev_confirm_sig = pyqtSignal(dict)
     _creative_preflight_sig = pyqtSignal(str, bool)
 
@@ -2996,6 +2997,7 @@ class MainWindow(QMainWindow):
         self._brain_activity_sig.connect(self._apply_brain_activity)
         self._bird_confirm_sig.connect(self._confirm_bird_message)
         self._bird_open_sig.connect(self._open_bird_local)
+        self._bird_draft_sig.connect(self._show_bird_draft)
         self._dev_confirm_sig.connect(self._confirm_dev_project)
         self._creative_preflight_sig.connect(self._finish_creative_preflight)
         if self.hud._reactor is not None:
@@ -3364,10 +3366,17 @@ class MainWindow(QMainWindow):
              lambda: self._submit_libras_text("__JARVIS_DAILY_BRIEFING__")),
             ("liteWhatsAppButton", "WHATSAPP", "Contatos e mensagens pela API Bird em 127.0.0.1.",
              self._open_bird_local),
+            ("liteRemoteAiButton", "IA REMOTA", "Perguntar ao motor gratuito pelo gateway local 127.0.0.1:8779.",
+             self._ask_remote_ai),
             ("liteLabButton", "NEXUS", "Abrir os outros módulos do Jarvis.",
              lambda: self._handle_lab_signal("open")),
         ])
         return panel
+
+    def _ask_remote_ai(self) -> None:
+        question, accepted = QInputDialog.getMultiLineText(self, "IA remota", "Pergunta para o motor gratuito:")
+        if accepted and question.strip() and self.on_text_command:
+            threading.Thread(target=self.on_text_command, args=("IA remota: " + question.strip(),), daemon=True).start()
 
     def _open_creative_mode(self, mode: str) -> None:
         if self._creative_available is None:
@@ -3433,6 +3442,11 @@ class MainWindow(QMainWindow):
         self._bird_local_window.show()
         self._bird_local_window.raise_()
         self._bird_local_window.activateWindow()
+
+    def _show_bird_draft(self, payload: dict) -> None:
+        self._open_bird_local()
+        if self._bird_local_window is not None:
+            self._bird_local_window.show_draft(str(payload.get("receiver") or ""), str(payload.get("message") or ""))
 
     def _confirm_bird_message(self, payload: dict) -> None:
         reply = payload["reply"]
@@ -4228,6 +4242,9 @@ class JarvisUI:
 
     def open_bird_local(self):
         self._win._bird_open_sig.emit()
+
+    def show_bird_draft(self, receiver: str, message: str = ""):
+        self._win._bird_draft_sig.emit({"receiver": receiver, "message": message})
 
     def confirm_bird_message(self, receiver: str, message: str) -> bool:
         from concurrent.futures import Future, TimeoutError

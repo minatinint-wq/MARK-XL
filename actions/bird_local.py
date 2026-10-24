@@ -133,6 +133,11 @@ def _contact(receiver: str) -> tuple[str, str]:
     return name, phone
 
 
+def resolve_contact(receiver: str) -> tuple[str, str]:
+    """Resolve only a saved, consented local contact for a voice draft."""
+    return _contact(receiver)
+
+
 def _idempotency_key(instance_id: str, phone: str, message: str) -> str:
     """Keep a retry after a lost HTTP response from creating a second message."""
     digest = hashlib.sha256(f"{instance_id}\0{phone}\0{message}".encode("utf-8")).hexdigest()
