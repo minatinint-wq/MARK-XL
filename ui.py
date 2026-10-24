@@ -66,6 +66,10 @@ def _prefer_low_memory_mode() -> bool:
         return psutil.virtual_memory().total <= 10 * 1024**3
     except Exception:
         return False
+
+
+def _glow_only_mode() -> bool:
+    return os.environ.get("MARK_XL_GLOW_ONLY", "0").strip().lower() in {"1", "true", "yes", "on"}
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if _OS == "Windows" else 0
 
 
@@ -334,12 +338,14 @@ class HudCanvas(QWidget):
         self._mesh_x = 14.0
         self._sphere_points: list[tuple[float, float, float, float]] = []
         self._sphere_edges: list[tuple[int, int]] = []
-        self._build_consciousness_mesh()
-        self._load_face(face_path)
+        self._glow_only = _glow_only_mode()
+        if not self._glow_only:
+            self._build_consciousness_mesh()
+            self._load_face(face_path)
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
-        self._low_memory_mode = _prefer_low_memory_mode()
+        self._low_memory_mode = self._glow_only or _prefer_low_memory_mode()
         self._tmr.start(80 if self._low_memory_mode else 40)
         self._reactor = None
         if self._low_memory_mode:
@@ -1408,6 +1414,12 @@ class HudCanvas(QWidget):
             self._reactor.set_status(state=self.state, speaking=self.speaking,
                                      muted=self.muted, mode=self.visual_mode)
             return
+        if self._glow_only:
+            self._voice_level += (self._voice_target - self._voice_level) * 0.34
+            self._voice_target *= 0.82
+            self._energy_phase = (self._energy_phase + 0.09 + self._voice_level * 0.24) % (math.pi * 2)
+            self.update()
+            return
         self._tick += 1
         self._voice_level += (self._voice_target - self._voice_level) * 0.34
         self._voice_target *= 0.82
@@ -1492,6 +1504,45 @@ class HudCanvas(QWidget):
             self._blink_tick = 0
         self.update()
 
+    def _paint_speaking_glow(self, p: QPainter):
+        """Small Qt-only voice indicator; no 3D scene or browser process."""
+        width, height = self.width(), self.height()
+        cx, cy = width / 2, height / 2
+        unit = min(width, height)
+        activity = min(1.0, self._voice_level * 2.8 + (0.16 if self.speaking else 0.0))
+        pulse = 1.0 + (0.035 + activity * 0.10) * math.sin(self._energy_phase)
+        radius = unit * 0.17 * pulse
+        if self.muted:
+            core, edge = QColor(130, 150, 165), QColor(90, 115, 135)
+        elif self.speaking:
+            core, edge = QColor(235, 251, 255), QColor(18, 192, 255)
+        elif self.state in {"THINKING", "PROCESSING"}:
+            core, edge = QColor(178, 239, 255), QColor(34, 133, 245)
+        else:
+            core, edge = QColor(145, 219, 243), QColor(20, 122, 173)
+
+        bloom = QRadialGradient(QPointF(cx, cy), radius * 2.6)
+        bloom.setColorAt(0.0, QColor(edge.red(), edge.green(), edge.blue(), 55 + int(activity * 75)))
+        bloom.setColorAt(0.35, QColor(edge.red(), edge.green(), edge.blue(), 25 + int(activity * 45)))
+        bloom.setColorAt(1.0, QColor(edge.red(), edge.green(), edge.blue(), 0))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(bloom))
+        p.drawEllipse(QRectF(cx - radius * 2.6, cy - radius * 2.6, radius * 5.2, radius * 5.2))
+
+        orb = QRadialGradient(QPointF(cx - radius * 0.25, cy - radius * 0.28), radius * 1.35)
+        orb.setColorAt(0.0, core)
+        orb.setColorAt(0.35, QColor(edge.red(), edge.green(), edge.blue(), 215))
+        orb.setColorAt(0.78, QColor(edge.red() // 3, edge.green() // 3, edge.blue() // 3, 190))
+        orb.setColorAt(1.0, QColor(2, 13, 22, 255))
+        p.setPen(QPen(QColor(edge.red(), edge.green(), edge.blue(), 130), 1.5))
+        p.setBrush(QBrush(orb))
+        p.drawEllipse(QRectF(cx - radius, cy - radius, radius * 2, radius * 2))
+
+        ring_radius = radius * (1.25 + activity * 0.16)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(edge.red(), edge.green(), edge.blue(), 55 + int(activity * 100)), 1.4 + activity * 1.4))
+        p.drawEllipse(QRectF(cx - ring_radius, cy - ring_radius, ring_radius * 2, ring_radius * 2))
+
     def paintEvent(self, _):
         if getattr(self, "_reactor", None) is not None:
             painter = QPainter(self)
@@ -1501,6 +1552,11 @@ class HudCanvas(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.fillRect(self.rect(), qcol(C.BG))
+
+        if self._glow_only:
+            self._paint_speaking_glow(p)
+            p.end()
+            return
 
         W, H = self.width(), self.height()
         cx, cy = W / 2, H / 2
@@ -3019,7 +3075,7 @@ class MainWindow(QMainWindow):
         if int(payload.get("revision", 0)) <= int(current.get("revision", 0)):
             return
         self._brain_activity = dict(payload)
-        if payload.get("active") and getattr(self, "_brain3d_dialog", None) is None:
+        if not _glow_only_mode() and payload.get("active") and getattr(self, "_brain3d_dialog", None) is None:
             self._open_brain_3d()
         self._send_brain_activity()
 
@@ -3032,6 +3088,9 @@ class MainWindow(QMainWindow):
 
     def _open_brain_3d(self):
         """Open the current local brain inside the UI, reusing a single dialog."""
+        if _glow_only_mode():
+            self._log.append_log("SYS: Cérebro 3D desativado na edição leve.")
+            return
         from pathlib import Path
 
         html_path = Path(__file__).resolve().parent / "memory_brain_3d.html"
@@ -3526,6 +3585,8 @@ class MainWindow(QMainWindow):
         brain_btn.setStyleSheet(nm_btn.styleSheet())
         brain_btn.setToolTip("Abrir cérebro 3D dentro do Jarvis · Ctrl+F3")
         brain_btn.clicked.connect(self._open_brain_3d)
+        if _glow_only_mode():
+            brain_btn.hide()
         map_buttons = QHBoxLayout()
         map_buttons.setSpacing(4)
         map_buttons.addWidget(nm_btn)

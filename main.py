@@ -4507,13 +4507,13 @@ type: index-note
                     print("[JARVIS] OK Connected.")
                     self.ui.set_state("LISTENING")
                     self.ui.write_log("SYS: JARVIS online.")
-                    if not self._call_privacy_started:
+                    if not self._call_privacy_started and os.environ.get("MARK_XL_CALL_PRIVACY_AUTOSTART", "1") != "0":
                         self._call_privacy_started = True
                         threading.Thread(
                             target=lambda: call_privacy_action({"action": "start", "silent": True}, player=self.ui),
                             daemon=True,
                         ).start()
-                    if not self._call_wake_started:
+                    if not self._call_wake_started and os.environ.get("MARK_XL_CALL_WAKE", "1") != "0":
                         self._call_wake_started = True
                         start_call_wake(self._on_call_wake_detected)
 
@@ -4688,7 +4688,8 @@ def main():
         if enable_clap_detection(on_clap):
             print("[JARVIS] 👂 Clap detection enabled - double clap to wake me!")
 
-    threading.Thread(target=start_clap_detection, daemon=True).start()
+    if os.environ.get("MARK_XL_CLAP_DETECTION", "1") != "0":
+        threading.Thread(target=start_clap_detection, daemon=True).start()
 
     def runner():
         ui.wait_for_api_key()

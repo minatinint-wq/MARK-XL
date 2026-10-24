@@ -145,6 +145,10 @@ the 3D armor. For an 8 GB PC, select the Normal local model and avoid loading
 multiple local models at once. The startup briefing sends one voice request;
 if the service is slow, it logs the timeout without restarting the report.
 
+For the voice-glow-only 8 GB edition, launch `INICIAR_JARVIS_8GB.bat`.
+See [the Portuguese transfer guide](docs/EDICAO_8GB.md). Credentials are
+transferred separately in a private local folder, never committed here.
+
 Local optional services:
 
 ```bash

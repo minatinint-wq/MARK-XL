@@ -98,6 +98,8 @@ arquivos/memory_map_new.html
 # Protected local Fish Audio credentials and voice preferences
 config/*.dpapi
 config/*.dpapi.tmp
+config/.fish-key-transfer.txt
+config/.spotify-cache-transfer.json
 config/fish_voice.json
 config/fish_voice.tmp
 backup-fish-voice-*/
