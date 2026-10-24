@@ -10,6 +10,8 @@ def _studio_path() -> Path:
     configured = os.environ.get("JARVIS_NVIDIA_STUDIO", "").strip()
     candidates = ([Path(configured)] if configured else []) + [
         APP_ROOT / "NVIDIA_AI_ART_STUDIO" / "art_studio.py",
+        APP_ROOT.parent / "NVIDIA_AI_ART_STUDIO" / "art_studio.py",
+        APP_ROOT.parent.parent / "NVIDIA_AI_ART_STUDIO" / "art_studio.py",
         Path.home() / "Desktop" / "NVIDIA_AI_ART_STUDIO" / "art_studio.py",
     ]
     for candidate in candidates:
@@ -24,11 +26,11 @@ def nvidia_camera_lab(parameters=None, response=None, player=None, speak=None) -
     action = str(params.get("action") or "open").strip().casefold()
     studio = _studio_path()
     if action == "status":
-        return "NVIDIA Camera Lab pronto para abrir." if studio.is_file() else f"NVIDIA Camera Lab não instalado em {studio}."
+        return "NVIDIA Camera Lab pronto para abrir." if studio.is_file() else "NVIDIA Camera Lab não instalado neste PC; o Studio é separado do Jarvis."
     if action not in {"open", "abrir", "start", "iniciar", "toggle"}:
         return "Use action=open para abrir o NVIDIA Camera Lab."
     if not studio.is_file():
-        return f"NVIDIA Camera Lab não encontrado em {studio}. Instale o Studio ou defina JARVIS_NVIDIA_STUDIO."
+        return "NVIDIA Camera Lab não instalado neste PC. Instale o NVIDIA_AI_ART_STUDIO ou configure JARVIS_NVIDIA_STUDIO com o caminho de art_studio.py."
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen(
         [str(Path(sys.executable)), str(studio), "--tab", "camera"],

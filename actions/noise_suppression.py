@@ -2,6 +2,7 @@
 from pathlib import Path
 import ctypes
 import logging
+import os
 import weakref
 import numpy as np
 
@@ -9,6 +10,10 @@ class NoiseSuppressor:
     def __init__(self, library=None):
         self.active = False
         self._release = None
+        # On a PC where RNNoise removes quiet speech, allow a no-filter
+        # diagnostic without changing the capture device or network path.
+        if os.environ.get("MARK_XL_MIC_RAW") == "1":
+            return
         try:
             path = Path(library) if library else Path(__file__).resolve().parents[1] / 'assets' / 'audio' / 'rnnoise' / 'rnnoise.dll'
             self._lib = ctypes.CDLL(str(path))

@@ -292,6 +292,20 @@ VOICE_BAND_EDGES_HZ = (60, 90, 130, 180, 250, 350, 500, 700, 1000, 1400, 2000, 2
 VOICE_BANDS_HZ      = tuple(int((low + high) / 2) for low, high in zip(VOICE_BAND_EDGES_HZ, VOICE_BAND_EDGES_HZ[1:]))
 VOICE_METRIC_INTERVAL = 0.20  # 5 Hz is smooth enough and avoids constant FFT/UI work
 SPEECH_TAIL_SECONDS = 0.30
+
+
+def _playback_should_release(now: float, last_audio_at: float, queue_empty: bool,
+                             turn_done: bool, fish_pending: bool, boot_voice: bool) -> bool:
+    """Release the mic after real playback silence, even if Live omits turn_complete."""
+    if not queue_empty or last_audio_at <= 0:
+        return False
+    if fish_pending:
+        tail = 6.0  # Do not open the mic during a brief TTS synthesis gap.
+    elif turn_done:
+        tail = 0.12 if boot_voice else SPEECH_TAIL_SECONDS
+    else:
+        tail = 1.2
+    return now - last_audio_at >= tail
 MIC_BLOCK_SAMPLES = 640  # 40 ms: fewer callbacks on the notebook
 MIC_MAX_AGE_SECONDS = 0.60  # tolerate short scheduling stalls without losing syllables
 IDENTITY_MODE_PATH  = BASE_DIR / "memory" / "jarvis_identity_mode.json"
@@ -1326,7 +1340,7 @@ TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action": {"type": "STRING", "description": "open | status"}
+                "action": {"type": "STRING", "enum": ["open", "status"], "description": "One value only: open or status"}
             },
             "required": []
         }
@@ -1638,8 +1652,8 @@ TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action": {"type": "STRING", "description": "start/open/abrir, stop/close/fechar/sair/encerrar, status, or run"},
-                "mode": {"type": "STRING", "description": "hand, braille, draw/desenho, or libras"},
+                "action": {"type": "STRING", "enum": ["start", "stop", "status"], "description": "One value only: start, stop or status"},
+                "mode": {"type": "STRING", "enum": ["hand", "braille", "draw", "libras"], "description": "One value only; use draw for drawing"},
                 "camera_index": {"type": "INTEGER", "description": "Optional camera index"},
                 "width": {"type": "INTEGER", "description": "Camera width, default 1280"},
                 "height": {"type": "INTEGER", "description": "Camera height, default 720"},
@@ -2982,6 +2996,12 @@ class JarvisLive:
                 return await self._execute_tool_once(fc)
             cache_key = f"avatar-call:{fc.id}"
             ttl = 240.0
+        elif name == "camera_hand_ui":
+            # A different/corrected camera request must not be blocked by the
+            # previous 30-second single-call window.
+            packed = json.dumps(canonical(args), ensure_ascii=False, sort_keys=True, default=str)
+            cache_key = f"camera-hand:{packed}"
+            ttl = 3.0
         elif name in single_call_windows:
             cache_key = f"single:{name}"
             ttl = single_call_windows[name]
@@ -4215,17 +4235,15 @@ type: index-note
                                 timeout=0.10
                             )
                         except asyncio.TimeoutError:
-                            # Only stop speaking if queue is empty for a while AND turn is done
-                            if (
-                                self._turn_done_event
-                                and self._turn_done_event.is_set()
-                                and self.audio_in_queue.empty()
-                                and not (self._fish_voice and self._fish_voice.pending)
-                                and last_audio_at > 0.0
-                                and time.monotonic() - last_audio_at >= (0.12 if self._boot_voice_in_progress else SPEECH_TAIL_SECONDS)
+                            turn_done = bool(self._turn_done_event and self._turn_done_event.is_set())
+                            if self._is_speaking and _playback_should_release(
+                                time.monotonic(), last_audio_at, self.audio_in_queue.empty(),
+                                turn_done, bool(self._fish_voice and self._fish_voice.pending),
+                                self._boot_voice_in_progress,
                             ):
                                 self.set_speaking(False)
-                                self._turn_done_event.clear()
+                                if turn_done:
+                                    self._turn_done_event.clear()
                             continue
                         if not self._fish_output_allowed():
                             self._clear_audio_queue()
@@ -4244,6 +4262,7 @@ type: index-note
                         now = time.monotonic()
                         last_audio_at = max(now, last_audio_at + duration, now + float(stream.latency))
                 except Exception as e:
+                    self.set_speaking(False)
                     retry_count += 1
                     detail = f"[JARVIS] WARN Play error ({retry_count}/{max_retries}): {e}"
                     print(detail)
@@ -4261,6 +4280,7 @@ type: index-note
             print("[JARVIS] ERROR Play: max retries exceeded")
 
         finally:
+            self.set_speaking(False)
             if stream is not None:
                 for cleanup in (stream.abort, stream.close):
                     try:
@@ -4461,14 +4481,16 @@ type: index-note
                                 capture_state["overflows"] = 0
                                 capture_state["dropped"] = 0
                             last_pressure_report = now
-                        if diag_reports < 12 and now - last_diag_report >= 10.0:
+                        if diag_reports < 3 and now - last_diag_report >= 10.0:
                             delta = {key: value - diag_snapshot[key] for key, value in self._mic_diag.items()}
+                            user_metrics = self._voice_metrics.get("user") or {}
                             diagnostic = (
                                 "MIC DIAG 10s: captados={processed} fila={queued} enviados={sent} "
                                 "atraso={stale} bloqueio_fala={speaking_block} "
                                 "captura_som={sound_block} fila_cheia={queue_full} "
-                                "transcricoes={transcripts} turnos={turns}"
-                            ).format(**delta, stale=delta["capture_stale"] + delta["send_stale"])
+                                "transcricoes={transcripts} turnos={turns} rms={rms:.4f}"
+                            ).format(**delta, stale=delta["capture_stale"] + delta["send_stale"],
+                                     rms=float(user_metrics.get("rms") or 0.0))
                             print(f"[JARVIS] {diagnostic}")
                             try:
                                 self.ui.write_log("SYS: " + diagnostic)

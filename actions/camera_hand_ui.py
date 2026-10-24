@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -255,9 +256,9 @@ def _session_is_alive(session: _CameraHandOverlay | None) -> bool:
 
 def camera_hand_ui(parameters: dict | None = None, player=None, speak=None) -> str:
     params = parameters or {}
-    action = str(params.get("action", "start")).lower().strip()
+    action = _normalize_action(params.get("action", "start"))
 
-    if str(params.get('mode','')).lower().strip() == 'libras':
+    if _normalize_mode(params.get("mode")) == "libras":
         if player is None or not hasattr(player, 'set_libras_mode'):
             return 'Abra o modo Libras pelo botão Libras na interface principal.'
         closing = action in {'stop','close','fechar','sair','encerrar'}
@@ -334,8 +335,29 @@ def _normalize_mode(mode: str) -> str:
         "mao": "hand",
         "mão": "hand",
         "hand": "hand",
+        "libras": "libras",
     }
+    for token in re.split(r"[/|,;]+", mode):
+        token = token.strip()
+        if token in aliases:
+            return aliases[token]
     return aliases.get(mode, "braille")
+
+
+def _normalize_action(value: object) -> str:
+    aliases = {
+        "open": "start", "abrir": "start", "iniciar": "start",
+        "run": "run", "executar": "run", "start": "start",
+        "close": "stop", "fechar": "stop", "fecha": "stop",
+        "parar": "stop", "sair": "stop", "encerrar": "stop", "stop": "stop",
+        "status": "status", "estado": "status",
+    }
+    raw = str(value or "start").lower().strip()
+    for token in re.split(r"[/|,;]+", raw):
+        token = token.strip()
+        if token in aliases:
+            return aliases[token]
+    return raw
 
 
 def _detect_hand(frame) -> _HandTrack:
