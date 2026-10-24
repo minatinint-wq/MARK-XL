@@ -3,6 +3,7 @@ import sys
 import json
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 
 
@@ -18,6 +19,26 @@ PROJECTS_DIR     = Path.home() / "Desktop" / "JarvisProjects"
 MAX_FIX_ATTEMPTS = 5
 MODEL_PLANNER    = "gemini-2.5-flash"
 MODEL_WRITER     = "gemini-2.5-flash"
+
+
+def _safe_project_file(project_dir: Path, relative: str) -> Path:
+    candidate = Path(str(relative or ""))
+    if not relative or candidate.is_absolute() or ".." in candidate.parts or ":" in str(relative):
+        raise ValueError("O plano tentou usar um caminho fora do projeto.")
+    target = (project_dir / candidate).resolve()
+    if target == project_dir.resolve() or not target.is_relative_to(project_dir.resolve()):
+        raise ValueError("O plano tentou usar um caminho fora do projeto.")
+    return target
+
+
+def _is_elevated() -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
 
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -229,7 +250,7 @@ Code for {file_path}:"""
         response = model.generate_content(prompt)
         code = _strip_fences(response.text)
 
-        full_path = project_dir / file_path
+        full_path = _safe_project_file(project_dir, file_path)
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(code, encoding="utf-8")
 
@@ -427,7 +448,7 @@ Fixed code for {fix_path}:"""
             response = model.generate_content(prompt)
             fixed = _strip_fences(response.text)
 
-            full_path = project_dir / fix_path
+            full_path = _safe_project_file(project_dir, fix_path)
             full_path.parent.mkdir(parents=True, exist_ok=True)
             full_path.write_text(fixed, encoding="utf-8")
 
@@ -468,9 +489,11 @@ def _build_project(
         return msg
 
     proj_name    = project_name or plan.get("project_name", "jarvis_project")
-    proj_name    = re.sub(r"[^\w\-]", "_", proj_name)
+    proj_name    = re.sub(r"[^\w\-]", "_", proj_name).strip("_-") or "jarvis_project"
     project_dir  = PROJECTS_DIR / proj_name
-    project_dir.mkdir(parents=True, exist_ok=True)
+    if project_dir.exists():
+        project_dir = PROJECTS_DIR / f"{proj_name}-{datetime.now():%Y%m%d-%H%M%S}"
+    project_dir.mkdir(parents=True, exist_ok=False)
 
     files        = plan.get("files", [])
     entry_point  = plan.get("entry_point", "main.py")
@@ -519,6 +542,13 @@ def _build_project(
         msg = "I could not write any project files, sir."
         if speak: speak(msg)
         return msg
+
+    if _is_elevated():
+        return (
+            f"Projeto criado em {project_dir}. Como o Jarvis está em modo administrador, "
+            "não instalei dependências nem executei código gerado automaticamente. "
+            "Revise o projeto e execute-o como usuário normal."
+        )
 
     if dependencies:
         install_result = _install_dependencies(dependencies, project_dir)
@@ -598,6 +628,10 @@ def dev_agent(
 
     if not description:
         return "Please describe the project you want me to build, sir."
+
+    if player is not None and hasattr(player, "confirm_dev_project"):
+        if not player.confirm_dev_project(description):
+            return "Criação do projeto cancelada pelo usuário."
 
     return _build_project(
         description  = description,

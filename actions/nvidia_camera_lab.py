@@ -1,27 +1,38 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 from actions.runtime_identity import APP_ROOT
 
-STUDIO = Path.home() / "Desktop" / "NVIDIA_AI_ART_STUDIO" / "art_studio.py"
-BUNDLED_PYTHON = APP_ROOT / "Python" / "bin" / "python.exe"
+def _studio_path() -> Path:
+    configured = os.environ.get("JARVIS_NVIDIA_STUDIO", "").strip()
+    candidates = ([Path(configured)] if configured else []) + [
+        APP_ROOT / "NVIDIA_AI_ART_STUDIO" / "art_studio.py",
+        Path.home() / "Desktop" / "NVIDIA_AI_ART_STUDIO" / "art_studio.py",
+    ]
+    for candidate in candidates:
+        script = candidate / "art_studio.py" if candidate.is_dir() else candidate
+        if script.is_file():
+            return script
+    return candidates[0]
 
 
 def nvidia_camera_lab(parameters=None, response=None, player=None, speak=None) -> str:
     params = parameters or {}
     action = str(params.get("action") or "open").strip().casefold()
+    studio = _studio_path()
     if action == "status":
-        return "O NVIDIA Camera Lab esta instalado e pronto para abrir."
+        return "NVIDIA Camera Lab pronto para abrir." if studio.is_file() else f"NVIDIA Camera Lab não instalado em {studio}."
     if action not in {"open", "abrir", "start", "iniciar", "toggle"}:
         return "Use action=open para abrir o NVIDIA Camera Lab."
-    if not STUDIO.exists():
-        return f"NVIDIA Camera Lab nao encontrado em {STUDIO}"
+    if not studio.is_file():
+        return f"NVIDIA Camera Lab não encontrado em {studio}. Instale o Studio ou defina JARVIS_NVIDIA_STUDIO."
     flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen(
-        [str(BUNDLED_PYTHON if BUNDLED_PYTHON.exists() else Path(sys.executable)), str(STUDIO), "--tab", "camera"],
-        cwd=str(STUDIO.parent),
+        [str(Path(sys.executable)), str(studio), "--tab", "camera"],
+        cwd=str(studio.parent),
         creationflags=flags,
     )
     return "NVIDIA Camera Lab aberto na aba de reconhecimento de objetos, pessoas e gestos."

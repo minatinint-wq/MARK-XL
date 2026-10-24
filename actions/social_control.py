@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import sys
 import time
@@ -130,6 +131,16 @@ def social_control(parameters: dict[str, Any] | None = None, player=None, speak=
         )
 
     if platform in {"whatsapp", "wp", "wpp", "zap", "zapzap"}:
+        if os.environ.get("MARK_XL_GLOW_ONLY") == "1":
+            if action in {"open", "web", "home", "open_chat", "chat", "conversation", "view_conversation", "conversa"}:
+                if player and hasattr(player, "open_bird_local"):
+                    player.open_bird_local()
+                    return "Painel WhatsApp Bird local aberto no Jarvis."
+                return "Painel WhatsApp Bird local indisponível."
+            if action in {"send", "send_message", "mandar", "enviar"}:
+                from actions.send_message import send_message
+                return send_message({"platform": "whatsapp", "receiver": receiver, "message_text": message}, player=player)
+            return "Na edição leve, WhatsApp usa apenas a Bird local para abrir e enviar."
         if action in {"open", "web", "home"}:
             return _open_url("https://web.whatsapp.com/")
 

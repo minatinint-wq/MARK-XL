@@ -301,6 +301,11 @@ def camera_hand_ui(parameters: dict | None = None, player=None, speak=None) -> s
     if action in {"start", "open", "abrir", "run", "executar"}:
         if _SESSION is not None and not _SESSION.running and _SESSION.thread and _SESSION.thread.is_alive():
             return "Camera hand UI ainda esta fechando. Tente novamente em alguns segundos."
+        if _SESSION is not None and _SESSION.running:
+            mode = _normalize_mode(params.get("mode", _SESSION.mode))
+            _SESSION.mode = mode
+            _SESSION.braille_mode = mode == "braille"
+            return f"Camera hand UI ativa em modo {mode}."
         if _SESSION is None or not _SESSION.running:
             _SESSION = _CameraHandOverlay(
                 camera_index=params.get("camera_index"),

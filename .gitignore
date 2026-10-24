@@ -51,6 +51,9 @@ config/iphone_shortcuts.json
 config/local_llm.json
 config/jarvis_bridge.json
 config/jarvis_relay.json
+config/bird_local.json
+config/.bird_local_key.dpapi
+config/.bird_local_idempotency.json
 config/iphone_social_config.html
 
 # Personal/generated memory

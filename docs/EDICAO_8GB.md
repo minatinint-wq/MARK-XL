@@ -2,12 +2,30 @@
 
 Esta edição mantém a conversa por voz e os comandos. A área central mostra
 somente um brilho que pulsa com a fala, sem armadura WebGL, cérebro 3D ou
-processo Chromium. A animação de abertura, a detecção de palmas e serviços
+processo Chromium ao iniciar. Sketchbook, instrumentos e Libras abrem o
+módulo 3D/WebEngine somente quando solicitados; feche essa janela para liberar
+os recursos. A animação de abertura, a detecção de palmas e serviços
 automáticos opcionais ficam desligados no iniciador leve. O modelo local
 começa no modo Normal (1B), sem carregar modelos grandes na abertura.
 O detector local da frase de chamada também fica desligado: assim ele não
 carrega o modelo Whisper em segundo plano. A conversa normal por microfone
 continua disponível.
+
+Os atalhos Câmera, Gestos, Desenho e Braille funcionam sob demanda. NVIDIA
+Camera Lab depende de uma instalação separada do `NVIDIA_AI_ART_STUDIO` no
+Desktop, ou da variável `JARVIS_NVIDIA_STUDIO` apontando para `art_studio.py`.
+O botão Spotify verifica a API e, se a sessão expirou, inicia uma nova
+autorização local pela porta 8888; renovar o plano não renova o token sozinho.
+O WhatsApp local requer API Bird instalada e pareada no PC de destino, com
+consentimento explícito para cada destinatário e confirmação antes do envio.
+
+O iniciador `INICIAR_JARVIS_8GB.bat` solicita permissão de administrador pelo
+UAC a cada abertura. Se cancelar, o Jarvis não inicia. Isso amplia o acesso
+do controle do PC; use somente com sua própria conta e revise operações
+sensíveis. No Nexus Lab há atalhos para controle do PC e agente de programação.
+O agente cria sempre uma pasta de projeto nova em `Desktop/JarvisProjects` e
+pede confirmação antes de começar. Quando o Jarvis está elevado, ele não
+instala dependências nem executa automaticamente o código que a IA gerou.
 
 ## No PC de destino
 

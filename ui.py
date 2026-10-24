@@ -32,7 +32,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QScrollArea, QSizePolicy, QTextEdit,
+    QMainWindow, QMessageBox, QPushButton, QScrollArea, QSizePolicy, QTextEdit,
     QVBoxLayout, QWidget, QProgressBar,
 )
 
@@ -2628,6 +2628,30 @@ class NexusLabWindow(QMainWindow):
                     ],
                 ),
             ],
+            [
+                self._module_card(
+                    "PC",
+                    "Controle do computador",
+                    "arquivos, janelas, teclado e automacoes sob comando",
+                    C.PRI,
+                    [
+                        ("JANELAS", "lista janelas abertas"),
+                        ("ARQUIVOS", "liste arquivos da minha pasta Documentos"),
+                        ("AJUDA", "explique os comandos de controle do PC disponiveis"),
+                    ],
+                ),
+                self._module_card(
+                    "DEV",
+                    "Agente de programacao",
+                    "planeja e cria projetos locais em JarvisProjects",
+                    C.GREEN,
+                    [
+                        ("CRIAR", "quero criar um programa; pergunte o objetivo antes de iniciar"),
+                        ("CODIGO", "explique como seu agente de programacao cria projetos"),
+                        ("PASTA", "abra a pasta JarvisProjects no Desktop"),
+                    ],
+                ),
+            ],
         ]
 
         for row_cards in rows:
@@ -2880,6 +2904,10 @@ class MainWindow(QMainWindow):
     _music_sig = pyqtSignal(bool)
     _brain3d_sig = pyqtSignal()
     _brain_activity_sig = pyqtSignal(dict)
+    _bird_confirm_sig = pyqtSignal(dict)
+    _bird_open_sig = pyqtSignal()
+    _dev_confirm_sig = pyqtSignal(dict)
+    _creative_preflight_sig = pyqtSignal(str, bool)
 
     def __init__(self, face_path: str):
         super().__init__()
@@ -2900,6 +2928,10 @@ class MainWindow(QMainWindow):
         self._current_file: str | None = None
         self._lab_window: NexusLabWindow | None = None
         self._vision_lab_window = None
+        self._bird_local_window = None
+        self._creative_window = None
+        self._creative_available = None
+        self._creative_checking = False
 
         central = QWidget()
         central.setStyleSheet(f"background: {C.BG};")
@@ -2926,6 +2958,8 @@ class MainWindow(QMainWindow):
         self.hud = HudCanvas(face_path)
         self.hud.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         center_lay.addWidget(self.hud, stretch=1)
+        if _glow_only_mode():
+            center_lay.addWidget(self._build_lite_tools(), stretch=0)
         center_lay.addWidget(self._build_model_panel(), stretch=0)
         body.addWidget(center, stretch=5)
 
@@ -2960,6 +2994,10 @@ class MainWindow(QMainWindow):
         self._music_sig.connect(self._set_music_mode)
         self._brain3d_sig.connect(self._open_brain_3d)
         self._brain_activity_sig.connect(self._apply_brain_activity)
+        self._bird_confirm_sig.connect(self._confirm_bird_message)
+        self._bird_open_sig.connect(self._open_bird_local)
+        self._dev_confirm_sig.connect(self._confirm_dev_project)
+        self._creative_preflight_sig.connect(self._finish_creative_preflight)
         if self.hud._reactor is not None:
             self.hud._reactor.textSubmitted.connect(self._submit_libras_text)
 
@@ -3269,6 +3307,174 @@ class MainWindow(QMainWindow):
     def _tick_clock(self):
         self._clock_lbl.setText(time.strftime("%H:%M:%S"))
         self._date_lbl.setText(time.strftime("%a %d %b %Y"))
+
+    def _build_lite_tools(self) -> QWidget:
+        """Keep the camera tools reachable without loading the 3D/WebEngine view."""
+        panel = QWidget()
+        panel.setStyleSheet(f"background: {C.DARK}; border-top: 1px solid {C.BORDER_B};")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(6, 5, 6, 5)
+        layout.setSpacing(4)
+
+        def add_row(specs):
+            row = QHBoxLayout()
+            row.setSpacing(4)
+            for name, label, hint, callback in specs:
+                button = QPushButton(label)
+                button.setObjectName(name)
+                button.setMinimumHeight(26)
+                button.setFont(QFont("Courier New", 7))
+                button.setCursor(Qt.CursorShape.PointingHandCursor)
+                button.setToolTip(hint)
+                button.setStyleSheet(
+                    f"QPushButton {{ color: {C.TEXT_MED}; background: {C.PANEL2}; "
+                    f"border: 1px solid {C.BORDER}; border-radius: 3px; }} "
+                    f"QPushButton:hover {{ color: {C.PRI}; border-color: {C.PRI}; }}"
+                )
+                button.clicked.connect(callback)
+                row.addWidget(button, stretch=1)
+            layout.addLayout(row)
+
+        add_row([
+            ("liteCameraButton", "CÂMERA", "Abrir Vision Labs; webcam só inicia ao clicar.",
+             lambda: self._handle_vision_lab_signal({"action": "open"})),
+            ("liteNvidiaButton", "NVIDIA LAB", "Abrir NVIDIA Camera Lab instalado neste PC.",
+             self._open_nvidia_camera_lab),
+            ("liteGesturesButton", "GESTOS", "Rastreamento leve das mãos pela webcam.",
+             lambda: self._run_lite_camera_action("start", "hand")),
+            ("liteStopCameraButton", "PARAR CÂM.", "Encerrar a webcam do Vision Labs e dos gestos.",
+             self._stop_lite_camera),
+        ])
+        add_row([
+            ("liteSketchButton", "SKETCHBOOK", "Abrir Sketchbook original sob demanda.",
+             lambda: self._open_creative_mode("sketch")),
+            ("liteMusicButton", "INSTRUMENTOS", "Abrir instrumentos por gestos sob demanda.",
+             lambda: self._open_creative_mode("music")),
+            ("liteLibrasButton", "LIBRAS", "Abrir módulo de Libras sob demanda.",
+             lambda: self._open_creative_mode("libras")),
+            ("liteDrawButton", "DESENHO", "Desenhar com os dedos, sem o visualizador 3D.",
+             lambda: self._run_lite_camera_action("start", "draw")),
+        ])
+        add_row([
+            ("liteBrailleButton", "BRAILLE", "Leitura Braille pela webcam.",
+             lambda: self._run_lite_camera_action("start", "braille")),
+            ("liteSpotifyButton", "SPOTIFY", "Verificar API e reconectar a conta se necessário.",
+             self._open_spotify_connection),
+            ("liteBriefingButton", "RELATÓRIO", "Pedir o briefing diário.",
+             lambda: self._submit_libras_text("__JARVIS_DAILY_BRIEFING__")),
+            ("liteWhatsAppButton", "WHATSAPP", "Contatos e mensagens pela API Bird em 127.0.0.1.",
+             self._open_bird_local),
+            ("liteLabButton", "NEXUS", "Abrir os outros módulos do Jarvis.",
+             lambda: self._handle_lab_signal("open")),
+        ])
+        return panel
+
+    def _open_creative_mode(self, mode: str) -> None:
+        if self._creative_available is None:
+            if self._creative_checking:
+                return
+            self._creative_checking = True
+            self._log_sig.emit("SYS: verificando o módulo gráfico antes de abrir…")
+            def check():
+                from actions.lite_creative_ui import webengine_preflight
+                self._creative_preflight_sig.emit(mode, webengine_preflight())
+            threading.Thread(target=check, name="JarvisCreativePreflight", daemon=True).start()
+            return
+        if not self._creative_available:
+            self._log_sig.emit("ERR: Qt WebEngine deste PC falhou no teste isolado; módulo 3D bloqueado para não derrubar o Jarvis.")
+            return
+        try:
+            if self._creative_window is None:
+                from actions.lite_creative_ui import LiteCreativeDialog
+                dialog = LiteCreativeDialog(mode, self._submit_libras_text, self)
+                self._creative_window = dialog
+                dialog.destroyed.connect(lambda: setattr(self, "_creative_window", None))
+                dialog.reactor.failed.connect(lambda message: self._log_sig.emit(f"ERR: módulo criativo: {message}"))
+            self._creative_window.open_mode(mode)
+        except Exception as exc:
+            self._log_sig.emit(f"ERR: módulo criativo indisponível ({type(exc).__name__}: {exc}).")
+
+    def _finish_creative_preflight(self, mode: str, available: bool) -> None:
+        self._creative_checking = False
+        self._creative_available = available
+        if available:
+            self._open_creative_mode(mode)
+        else:
+            self._log_sig.emit("ERR: Qt WebEngine falhou no processo de teste. Sketchbook/instrumentos/Libras não iniciados; a voz continua ativa.")
+
+    def _open_nvidia_camera_lab(self) -> None:
+        def work():
+            try:
+                from actions.nvidia_camera_lab import nvidia_camera_lab
+                result = nvidia_camera_lab({"action": "open"})
+                self._log_sig.emit(f"NVIDIA LAB: {result}")
+            except Exception as exc:
+                self._log_sig.emit(f"ERR: NVIDIA Camera Lab ({type(exc).__name__}).")
+        threading.Thread(target=work, name="JarvisNvidiaLab", daemon=True).start()
+
+    def _open_spotify_connection(self) -> None:
+        def work():
+            try:
+                from actions.spotify_reconnect import check_and_reconnect
+                result = check_and_reconnect()
+                self._log_sig.emit(f"SPOTIFY: {result}")
+            except Exception as exc:
+                self._log_sig.emit(f"ERR: Spotify ({type(exc).__name__}: {exc}).")
+        threading.Thread(target=work, name="JarvisSpotifyReconnect", daemon=True).start()
+
+    def _open_bird_local(self) -> None:
+        if self._bird_local_window is None:
+            try:
+                from actions.bird_local_ui import BirdLocalDialog
+                self._bird_local_window = BirdLocalDialog(self)
+            except Exception as exc:
+                self._log.append_log(f"ERR: WhatsApp Bird local indisponível ({type(exc).__name__}).")
+                return
+        self._bird_local_window.show()
+        self._bird_local_window.raise_()
+        self._bird_local_window.activateWindow()
+
+    def _confirm_bird_message(self, payload: dict) -> None:
+        reply = payload["reply"]
+        if reply.done():
+            return
+        receiver = str(payload.get("receiver") or "")
+        message = str(payload.get("message") or "")
+        answer = QMessageBox.question(
+            self, "Confirmar WhatsApp", f"Enviar para {receiver}?\n\n{message[:500]}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        reply.set_result(answer == QMessageBox.StandardButton.Yes)
+
+    def _confirm_dev_project(self, payload: dict) -> None:
+        reply = payload["reply"]
+        if reply.done():
+            return
+        description = str(payload.get("description") or "")[:350]
+        answer = QMessageBox.question(
+            self, "Autorizar agente de programação",
+            "Criar um novo projeto em Desktop\\JarvisProjects?\n\n"
+            + description + "\n\nO conteúdo será planejado por IA. Revise os arquivos antes de executar.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        reply.set_result(answer == QMessageBox.StandardButton.Yes)
+
+    def _run_lite_camera_action(self, action: str, mode: str = "hand") -> None:
+        def work():
+            try:
+                from actions.camera_hand_ui import camera_hand_ui
+                result = camera_hand_ui({"action": action, "mode": mode}, player=self)
+                self._log_sig.emit(f"CÂMERA: {result}")
+            except Exception as exc:
+                self._log_sig.emit(f"ERR: câmera indisponível ({type(exc).__name__}).")
+        threading.Thread(target=work, name="JarvisLiteCamera", daemon=True).start()
+
+    def _stop_lite_camera(self) -> None:
+        if self._vision_lab_window is not None:
+            self._vision_lab_window.stop_camera()
+        self._run_lite_camera_action("stop")
 
     def _build_model_panel(self) -> QWidget:
         panel = QWidget()
@@ -3833,10 +4039,14 @@ class MainWindow(QMainWindow):
     def _set_music_mode(self, enabled):
         if self.hud._reactor is not None:
             self.hud._reactor._bridge.command.emit('openMusic' if enabled else 'closeMusic')
+        elif enabled:
+            self._open_creative_mode("music")
 
     def _set_libras_mode(self, enabled):
         if self.hud._reactor is not None:
             self.hud._reactor._bridge.command.emit('openLibras' if enabled else 'closeLibras')
+        elif enabled:
+            self._open_creative_mode("libras")
 
     def _submit_libras_text(self, text):
         if self.hud.state == 'SLEEPING': return
@@ -4015,6 +4225,27 @@ class JarvisUI:
 
     def toggle_vision_lab(self):
         self._win._vision_lab_sig.emit({"action": "toggle"})
+
+    def open_bird_local(self):
+        self._win._bird_open_sig.emit()
+
+    def confirm_bird_message(self, receiver: str, message: str) -> bool:
+        from concurrent.futures import Future, TimeoutError
+        reply = Future()
+        self._win._bird_confirm_sig.emit({"receiver": receiver, "message": message, "reply": reply})
+        try:
+            return bool(reply.result(timeout=60))
+        except TimeoutError:
+            return False
+
+    def confirm_dev_project(self, description: str) -> bool:
+        from concurrent.futures import Future, TimeoutError
+        reply = Future()
+        self._win._dev_confirm_sig.emit({"description": description, "reply": reply})
+        try:
+            return bool(reply.result(timeout=120))
+        except TimeoutError:
+            return False
 
     def wait_for_api_key(self):
         while not self._win._ready:

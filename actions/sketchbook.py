@@ -7,6 +7,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +15,10 @@ from PIL import Image
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 LIBRARY = APP_ROOT / 'sketchbook' / 'modelos'
-STUDIO = Path.home() / 'Desktop' / 'NVIDIA_AI_ART_STUDIO' / 'art_studio.py'
+_studio_setting = os.environ.get('JARVIS_NVIDIA_STUDIO', '').strip()
+STUDIO = Path(_studio_setting) if _studio_setting else Path.home() / 'Desktop' / 'NVIDIA_AI_ART_STUDIO' / 'art_studio.py'
+if STUDIO.is_dir():
+    STUDIO /= 'art_studio.py'
 
 def decode_png(data):
     if not isinstance(data, str) or not data.startswith('data:image/png;base64,') or len(data) > 8_000_000:
@@ -91,6 +95,8 @@ def list_templates(library=None):
 
 def studio_command(saved, prompt='', name=''):
     pythonw = APP_ROOT / 'Python' / 'pythoncore-3.14-64' / 'pythonw.exe'
+    if not pythonw.is_file():
+        pythonw = Path(sys.executable)
     instruction = ('Transforme este esboco em uma imagem final bem acabada, preservando os objetos, a composicao e as posicoes do desenho. '
                    'As linhas sao uma referencia visual; nao copie as linhas do rascunho no resultado. ')
     if name and name != 'Meu desenho':

@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def receive_callback(timeout_seconds: int = 180) -> str:
+def receive_callback(timeout_seconds: int = 180, ready: Event | None = None) -> str:
     done = Event()
     outcome = {"message": "Tempo esgotado aguardando a autorização do Spotify."}
 
@@ -69,6 +69,8 @@ def receive_callback(timeout_seconds: int = 180) -> str:
     server = ThreadingHTTPServer(("127.0.0.1", 8888), CallbackHandler)
     server.timeout = 0.25
     try:
+        if ready is not None:
+            ready.set()
         deadline = monotonic() + max(15, int(timeout_seconds))
         while not done.is_set() and monotonic() < deadline:
             server.handle_request()

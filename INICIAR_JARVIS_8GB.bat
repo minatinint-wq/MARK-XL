@@ -1,8 +1,17 @@
 @echo off
 setlocal
+if /I not "%~1"=="--elevated" (
+    powershell.exe -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '--elevated' -WorkingDirectory '%~dp0' -Verb RunAs } catch { exit 1 }"
+    if errorlevel 1 (
+        echo [JARVIS] Inicio como administrador cancelado ou indisponivel.
+        pause
+        exit /b 1
+    )
+    exit /b 0
+)
 cd /d "%~dp0"
 
-rem Edicao leve: apenas o brilho de voz, sem WebEngine ou cerebro 3D.
+rem Edicao leve: brilho de voz ao iniciar; modulo 3D apenas sob demanda.
 set "MARK_XL_GLOW_ONLY=1"
 set "MARK_XL_LOW_MEMORY=1"
 set "MARK_XL_BOOT_ANIMATION=0"

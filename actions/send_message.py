@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import time
@@ -273,6 +274,19 @@ def send_message(
         return "Please specify a recipient."
     if not message_text:
         return "Please specify the message content."
+    if os.environ.get("MARK_XL_GLOW_ONLY") == "1" and platform.lower() in {"whatsapp", "wp", "wapp", "wpp", "zap"}:
+        try:
+            from actions.bird_local import send_text
+            if not player or not hasattr(player, "confirm_bird_message"):
+                return "WhatsApp Bird local requer confirmação na janela do Jarvis."
+            if not player.confirm_bird_message(receiver, message_text):
+                return "Envio WhatsApp cancelado."
+            result = send_text(receiver, message_text, confirmed=True)
+        except Exception as exc:
+            result = str(exc)
+        if player:
+            player.write_log(f"[msg] Bird local: {result}")
+        return result
     if not _PYAUTOGUI:
         return "PyAutoGUI is not installed — cannot control the desktop."
 
