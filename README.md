@@ -138,6 +138,13 @@ dependencies are listed separately in `requirements-reactor-3d.txt` and
 `requirements-fish-voice.txt`. The 3D brain needs a locally built index; no
 personal notes or generated index are included in this repository.
 
+On PCs with 10 GiB of RAM or less, JARVIS automatically uses the lighter Qt
+canvas instead of starting the Chromium/WebGL armor. Set
+`MARK_XL_LOW_MEMORY=1` to force this mode, or `MARK_XL_LOW_MEMORY=0` to keep
+the 3D armor. For an 8 GB PC, select the Normal local model and avoid loading
+multiple local models at once. The startup briefing sends one voice request;
+if the service is slow, it logs the timeout without restarting the report.
+
 Local optional services:
 
 ```bash

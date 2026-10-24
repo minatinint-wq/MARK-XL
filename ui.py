@@ -53,6 +53,19 @@ _LEFT_W  = 148
 _RIGHT_W = 340
 
 _OS = platform.system()  # "Windows" | "Darwin" | "Linux"
+
+
+def _prefer_low_memory_mode() -> bool:
+    """Avoid starting Chromium/WebGL automatically on machines with 8 GB RAM."""
+    setting = os.environ.get("MARK_XL_LOW_MEMORY", "auto").strip().lower()
+    if setting in {"1", "true", "yes", "on"}:
+        return True
+    if setting in {"0", "false", "no", "off"}:
+        return False
+    try:
+        return psutil.virtual_memory().total <= 10 * 1024**3
+    except Exception:
+        return False
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if _OS == "Windows" else 0
 
 
@@ -326,21 +339,22 @@ class HudCanvas(QWidget):
 
         self._tmr = QTimer(self)
         self._tmr.timeout.connect(self._step)
-        self._tmr.start(40)  # Fallback canvas animation.
+        self._low_memory_mode = _prefer_low_memory_mode()
+        self._tmr.start(80 if self._low_memory_mode else 40)
         self._reactor = None
-        try:
-            from actions.reactor_view import ReactorView
-            self._reactor = ReactorView(self)
-            self._reactor.setGeometry(self.rect())
-            self._reactor.failed.connect(self._reactor_failed)
-            QApplication.instance().aboutToQuit.connect(self._reactor.shutdown)
-            # The WebGL scene animates on its own requestAnimationFrame loop.  Native
-            # status changes are low-frequency, while PCM voice metrics have their own
-            # immediate path below, so polling the bridge at 8 Hz avoids needless Qt /
-            # Chromium wakeups without making speech or the eye states feel delayed.
-            self._tmr.start(125)
-        except Exception as exc:
-            print(f"[Reactor3D] Using canvas fallback: {type(exc).__name__}")
+        if self._low_memory_mode:
+            print("[JARVIS] Modo leve: armadura WebGL desativada para economizar RAM.")
+        else:
+            try:
+                from actions.reactor_view import ReactorView
+                self._reactor = ReactorView(self)
+                self._reactor.setGeometry(self.rect())
+                self._reactor.failed.connect(self._reactor_failed)
+                QApplication.instance().aboutToQuit.connect(self._reactor.shutdown)
+                # The WebGL scene animates on its own requestAnimationFrame loop.
+                self._tmr.start(125)
+            except Exception as exc:
+                print(f"[Reactor3D] Using canvas fallback: {type(exc).__name__}")
 
     def _reactor_failed(self, message):
         reactor, self._reactor = self._reactor, None
