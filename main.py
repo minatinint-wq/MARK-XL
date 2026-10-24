@@ -2228,6 +2228,8 @@ class JarvisLive:
             return
         if self._handle_remote_ai_command(text):
             return
+        if self._handle_gmail_command(text):
+            return
         if self._handle_power_command(text):
             return
         if self._handle_fish_voice_command(text):
@@ -2723,6 +2725,8 @@ class JarvisLive:
                 return True
             if self._handle_remote_ai_command(full_in):
                 return True
+            if self._handle_gmail_command(full_in):
+                return True
         if self._dispatch_local_smart_home_command(full_in):
             return True
         if self._dispatch_local_video_command(full_in):
@@ -2772,6 +2776,16 @@ class JarvisLive:
                 self.speak("Não consegui concluir a consulta remota. Veja o registro de atividade.")
 
         threading.Thread(target=work, name="JarvisRemoteAIQuestion", daemon=True).start()
+        return True
+
+    def _handle_gmail_command(self, text: str) -> bool:
+        command = _normalize_spoken_text(text)
+        if command.startswith("jarvis "):
+            command = command[7:]
+        if command not in {"abrir email", "abre email", "ver emails", "mostrar emails", "abrir gmail", "abre gmail", "ver gmail", "espelho de email"}:
+            return False
+        self.ui.open_gmail_mirror()
+        self.ui.write_log("E-MAIL: painel Gmail de metadados aberto; leitura somente sob demanda.")
         return True
 
     def _handle_voice_message_command(self, text: str) -> bool:

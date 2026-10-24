@@ -33,6 +33,11 @@ Somente modelos gratuitos são aceitos. Diga "Jarvis, IA remota: [pergunta]"
 para consultar; o Jarvis mostra e lê a resposta. Isso não sincroniza CRM,
 memórias ou arquivos e requer internet. A rota `/health` do gateway é local.
 
+O botão **E-MAIL** abre o [espelho Gmail](GMAIL_ESPELHO.md) sob demanda,
+com autorização Google própria e escopo somente de metadados. Sem o JSON
+OAuth Desktop do titular, o botão explica o que falta; não tenta usar uma
+senha do Gmail nem credenciais de outro aplicativo.
+
 O iniciador `INICIAR_JARVIS_8GB.bat` solicita permissão de administrador pelo
 UAC a cada abertura. Se cancelar, o Jarvis não inicia. Isso amplia o acesso
 do controle do PC; use somente com sua própria conta e revise operações

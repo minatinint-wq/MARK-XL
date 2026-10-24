@@ -62,6 +62,9 @@ def build(source: Path, output: Path) -> None:
     remote_ai_key = source / "config" / ".remote_ai_access.key"
     if remote_ai_key.is_file():
         shutil.copy2(remote_ai_key, private / ".remote_ai_access.key")
+    gmail_client = source / "config" / "gmail_oauth_client.json"
+    if gmail_client.is_file():
+        shutil.copy2(gmail_client, private / "gmail_oauth_client.json")
 
     local_config = json.loads((ROOT / "config" / "local_llm.example.json").read_text(encoding="utf-8"))
     local_config.update({"mode": "normal", "model": local_config["normal_model"],
@@ -82,6 +85,7 @@ def build(source: Path, output: Path) -> None:
     print(f"Chave Fish para migração: {'sim' if fish_key else 'não'}")
     print(f"Sessão Spotify para migração: {'sim' if cache.is_file() else 'não'}")
     print(f"Chave privada do gateway IA: {'sim' if remote_ai_key.is_file() else 'não'}")
+    print(f"Cliente OAuth Gmail: {'sim' if gmail_client.is_file() else 'não; configurar no PC de destino'}")
     print("ATENÇÃO: contém credenciais legíveis; não envie para GitHub ou link público.")
 
 

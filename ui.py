@@ -2907,6 +2907,7 @@ class MainWindow(QMainWindow):
     _bird_confirm_sig = pyqtSignal(dict)
     _bird_open_sig = pyqtSignal()
     _bird_draft_sig = pyqtSignal(dict)
+    _gmail_open_sig = pyqtSignal()
     _dev_confirm_sig = pyqtSignal(dict)
     _creative_preflight_sig = pyqtSignal(str, bool)
 
@@ -2930,6 +2931,7 @@ class MainWindow(QMainWindow):
         self._lab_window: NexusLabWindow | None = None
         self._vision_lab_window = None
         self._bird_local_window = None
+        self._gmail_mirror_window = None
         self._creative_window = None
         self._creative_available = None
         self._creative_checking = False
@@ -2998,6 +3000,7 @@ class MainWindow(QMainWindow):
         self._bird_confirm_sig.connect(self._confirm_bird_message)
         self._bird_open_sig.connect(self._open_bird_local)
         self._bird_draft_sig.connect(self._show_bird_draft)
+        self._gmail_open_sig.connect(self._open_gmail_mirror)
         self._dev_confirm_sig.connect(self._confirm_dev_project)
         self._creative_preflight_sig.connect(self._finish_creative_preflight)
         if self.hud._reactor is not None:
@@ -3366,10 +3369,14 @@ class MainWindow(QMainWindow):
              lambda: self._submit_libras_text("__JARVIS_DAILY_BRIEFING__")),
             ("liteWhatsAppButton", "WHATSAPP", "Contatos e mensagens pela API Bird em 127.0.0.1.",
              self._open_bird_local),
-            ("liteRemoteAiButton", "IA REMOTA", "Perguntar ao motor gratuito pelo gateway local 127.0.0.1:8779.",
-             self._ask_remote_ai),
             ("liteLabButton", "NEXUS", "Abrir os outros módulos do Jarvis.",
              lambda: self._handle_lab_signal("open")),
+        ])
+        add_row([
+            ("liteGmailButton", "E-MAIL", "Espelho Gmail de remetente, assunto e data, somente leitura.",
+             self._open_gmail_mirror),
+            ("liteRemoteAiButton", "IA REMOTA", "Perguntar ao motor gratuito pelo gateway local 127.0.0.1:8779.",
+             self._ask_remote_ai),
         ])
         return panel
 
@@ -3447,6 +3454,18 @@ class MainWindow(QMainWindow):
         self._open_bird_local()
         if self._bird_local_window is not None:
             self._bird_local_window.show_draft(str(payload.get("receiver") or ""), str(payload.get("message") or ""))
+
+    def _open_gmail_mirror(self) -> None:
+        if self._gmail_mirror_window is None:
+            try:
+                from actions.gmail_mirror_ui import GmailMirrorDialog
+                self._gmail_mirror_window = GmailMirrorDialog(self)
+            except Exception as exc:
+                self._log.append_log(f"ERR: Espelho Gmail indisponível ({type(exc).__name__}).")
+                return
+        self._gmail_mirror_window.show()
+        self._gmail_mirror_window.raise_()
+        self._gmail_mirror_window.activateWindow()
 
     def _confirm_bird_message(self, payload: dict) -> None:
         reply = payload["reply"]
@@ -4242,6 +4261,9 @@ class JarvisUI:
 
     def open_bird_local(self):
         self._win._bird_open_sig.emit()
+
+    def open_gmail_mirror(self):
+        self._win._gmail_open_sig.emit()
 
     def show_bird_draft(self, receiver: str, message: str = ""):
         self._win._bird_draft_sig.emit({"receiver": receiver, "message": message})

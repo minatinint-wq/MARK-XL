@@ -29,3 +29,4 @@ winrt-Windows.UI.Notifications==3.2.1
 winrt-Windows.UI.Notifications.Management==3.2.1
 feedparser
 spotipy
+google-auth-oauthlib
