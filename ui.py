@@ -2587,7 +2587,7 @@ class NexusLabWindow(QMainWindow):
                     "#b06cff",
                     [
                         ("MAPA", "__open_neural_map__"),
-                        ("CÉREBRO 3D", "__open_brain_3d__"),
+                        *([] if _glow_only_mode() else [("CÉREBRO 3D", "__open_brain_3d__")]),
                         ("STATS", "estatisticas do cerebro neural"),
                         ("ESTUDO", "inicia modo estudo ciclico"),
                     ],
